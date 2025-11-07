@@ -72,20 +72,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
 
         if ($result->num_rows === 1) {
             $user = $result->fetch_assoc();
+if (password_verify($password, $user['password'])) {
+    $_SESSION['user_id'] = $user['id'];
+    $_SESSION['fullname'] = $user['fullname'];
+    $_SESSION['userrole'] = $user['userrole'];
 
-            if (password_verify($password, $user['password'])) {
-                $_SESSION['user_id'] = $user['id'];
-                $_SESSION['fullname'] = $user['fullname'];
-                $_SESSION['userrole'] = $user['userrole'];
-
-                if ($user['userrole'] == 1) {
-                    header("Location: AdminDashboard.php");
-                    exit;
-                } else {
-                    header("Location: CustomerHomepage.php");
-                    exit;
-                }
-            } else {
+    if ($user['userrole'] == 1) {
+        header("Location: /fashionhub/Admin/AdminDashboard.php");
+        exit;
+    } else {
+        header("Location: /fashionhub/Customer/CustomerDashboard.php");
+        exit;
+    }
+}
+ else {
                 $message = "Incorrect password.";
                 $messageType = "error";
             }
