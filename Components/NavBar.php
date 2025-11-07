@@ -1,3 +1,103 @@
+<?php
+session_start();
+
+// Database connection
+$servername = "localhost";
+$username = "root";
+$password = "";
+$database = "fashionhubdb";
+
+$conn = new mysqli($servername, $username, $password, $database);
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
+}
+
+$message = "";
+$messageType = ""; 
+
+// ====== SIGNUP FORM ======
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] == 'signup') {
+    $fullname = trim($_POST['fullname']);
+    $email = trim($_POST['email']);
+    $phone = trim($_POST['phone']);
+    $password = trim($_POST['password']);
+
+    if (empty($fullname) || empty($email) || empty($password)) {
+        $message = "Please fill in all required fields.";
+        $messageType = "error";
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $message = "Invalid email address.";
+        $messageType = "error";
+    } else {
+        $checkQuery = "SELECT id FROM users WHERE email = ?";
+        $stmt = $conn->prepare($checkQuery);
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows > 0) {
+            $message = "This email is already registered. Please login.";
+            $messageType = "error";
+        } else {
+            $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+            $insertQuery = "INSERT INTO users (fullname, email, phone, password) VALUES (?, ?, ?, ?)";
+            $stmt = $conn->prepare($insertQuery);
+            $stmt->bind_param("ssss", $fullname, $email, $phone, $hashedPassword);
+            if ($stmt->execute()) {
+                $message = "Account created successfully! You can now log in.";
+                $messageType = "success";
+            } else {
+                $message = "Error creating account: " . $conn->error;
+                $messageType = "error";
+            }
+        }
+        $stmt->close();
+    }
+}
+
+// ====== LOGIN FORM ======
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] == 'login') {
+    $email = trim($_POST['login_email']);
+    $password = trim($_POST['login_password']);
+
+    if (empty($email) || empty($password)) {
+        $message = "Please enter both email and password.";
+        $messageType = "error";
+    } else {
+        $query = "SELECT * FROM users WHERE email = ?";
+        $stmt = $conn->prepare($query);
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows === 1) {
+            $user = $result->fetch_assoc();
+
+            if (password_verify($password, $user['password'])) {
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['fullname'] = $user['fullname'];
+                $_SESSION['userrole'] = $user['userrole'];
+
+                if ($user['userrole'] == 1) {
+                    header("Location: AdminDashboard.php");
+                    exit;
+                } else {
+                    header("Location: CustomerHomepage.php");
+                    exit;
+                }
+            } else {
+                $message = "Incorrect password.";
+                $messageType = "error";
+            }
+        } else {
+            $message = "No account found with that email.";
+            $messageType = "error";
+        }
+        $stmt->close();
+    }
+}
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,6 +115,44 @@
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: #f5f5f5;
+            padding-top: 70px;
+        }
+
+        /* Message Alert */
+        .alert {
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-weight: 500;
+            z-index: 3000;
+            animation: slideDown 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            max-width: 500px;
+            text-align: center;
+        }
+
+        .alert.success {
+            background: #4caf50;
+            color: white;
+        }
+
+        .alert.error {
+            background: #f44336;
+            color: white;
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translate(-50%, -20px);
+                opacity: 0;
+            }
+            to {
+                transform: translate(-50%, 0);
+                opacity: 1;
+            }
         }
 
         /* Top Navigation Bar */
@@ -228,11 +366,11 @@
             max-width: 450px;
             padding: 0;
             position: relative;
-            animation: slideDown 0.3s;
+            animation: slideUp 0.3s;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
         }
 
-        @keyframes slideDown {
+        @keyframes slideUp {
             from {
                 transform: translateY(-50px);
                 opacity: 0;
@@ -350,7 +488,7 @@
         }
 
         .form-footer a {
-            color: #667eea;
+            color: #e74c3c;
             text-decoration: none;
             font-weight: 600;
             cursor: pointer;
@@ -591,6 +729,12 @@
     </style>
 </head>
 <body>
+    <?php if (!empty($message)): ?>
+        <div class="alert <?php echo $messageType; ?>" id="alertMessage">
+            <?php echo htmlspecialchars($message); ?>
+        </div>
+    <?php endif; ?>
+
     <!-- Top Navigation Bar -->
     <nav class="navbar">
         <div class="navbar-content">
@@ -642,20 +786,21 @@
                 <button class="close-modal" id="closeLogin">&times;</button>
             </div>
             <div class="modal-body">
-                <form id="loginForm">
+                <form method="POST" action="">
+                    <input type="hidden" name="action" value="login">
                     <div class="form-group">
                         <label for="loginEmail">Email Address</label>
-                        <input type="email" id="loginEmail" placeholder="Enter your email" required>
+                        <input type="email" id="loginEmail" name="login_email" placeholder="Enter your email" required>
                     </div>
                     <div class="form-group">
                         <label for="loginPassword">Password</label>
-                        <input type="password" id="loginPassword" placeholder="Enter your password" required>
+                        <input type="password" id="loginPassword" name="login_password" placeholder="Enter your password" required>
                     </div>
                     <button type="submit" class="submit-btn">Login</button>
-                    <div class="form-footer">
-                        Don't have an account? <a id="switchToSignup">Sign up here</a>
-                    </div>
                 </form>
+                <div class="form-footer">
+                    Don't have an account? <a id="switchToSignup">Sign up</a>
+                </div>
             </div>
         </div>
     </div>
@@ -669,28 +814,29 @@
                 <button class="close-modal" id="closeSignup">&times;</button>
             </div>
             <div class="modal-body">
-                <form id="signupForm">
+                <form method="POST" action="">
+                    <input type="hidden" name="action" value="signup">
                     <div class="form-group">
                         <label for="signupName">Full Name</label>
-                        <input type="text" id="signupName" placeholder="Enter your full name" required>
+                        <input type="text" id="signupName" name="fullname" placeholder="Enter your full name" required>
                     </div>
                     <div class="form-group">
                         <label for="signupEmail">Email Address</label>
-                        <input type="email" id="signupEmail" placeholder="Enter your email" required>
+                        <input type="email" id="signupEmail" name="email" placeholder="Enter your email" required>
                     </div>
                     <div class="form-group">
                         <label for="signupPhone">Phone Number</label>
-                        <input type="tel" id="signupPhone" placeholder="Enter your phone number" required>
+                        <input type="tel" id="signupPhone" name="phone" placeholder="Enter your phone number" required>
                     </div>
                     <div class="form-group">
                         <label for="signupPassword">Password</label>
-                        <input type="password" id="signupPassword" placeholder="Create a password" required>
+                        <input type="password" id="signupPassword" name="password" placeholder="Create a password" required>
                     </div>
                     <button type="submit" class="submit-btn">Sign Up</button>
-                    <div class="form-footer">
-                        Already have an account? <a id="switchToLogin">Login here</a>
-                    </div>
                 </form>
+                <div class="form-footer">
+                    Already have an account? <a id="switchToLogin">Login</a>
+                </div>
             </div>
         </div>
     </div>
@@ -757,8 +903,17 @@
         const closeSignup = document.getElementById('closeSignup');
         const switchToSignup = document.getElementById('switchToSignup');
         const switchToLogin = document.getElementById('switchToLogin');
-        const loginForm = document.getElementById('loginForm');
-        const signupForm = document.getElementById('signupForm');
+
+        // Auto-hide alert message after 5 seconds
+        const alertMessage = document.getElementById('alertMessage');
+        if (alertMessage) {
+            setTimeout(() => {
+                alertMessage.style.animation = 'slideUp 0.3s ease';
+                setTimeout(() => {
+                    alertMessage.remove();
+                }, 300);
+            }, 5000);
+        }
 
         // Toggle sidebar
         menuToggle.addEventListener('click', function() {
@@ -805,16 +960,20 @@
         });
 
         // Switch from Login to Signup
-        switchToSignup.addEventListener('click', function() {
-            loginModal.classList.remove('active');
-            signupModal.classList.add('active');
-        });
+        if (switchToSignup) {
+            switchToSignup.addEventListener('click', function() {
+                loginModal.classList.remove('active');
+                signupModal.classList.add('active');
+            });
+        }
 
         // Switch from Signup to Login
-        switchToLogin.addEventListener('click', function() {
-            signupModal.classList.remove('active');
-            loginModal.classList.add('active');
-        });
+        if (switchToLogin) {
+            switchToLogin.addEventListener('click', function() {
+                signupModal.classList.remove('active');
+                loginModal.classList.add('active');
+            });
+        }
 
         // Close modals when clicking outside
         loginModal.addEventListener('click', function(e) {
@@ -827,30 +986,6 @@
             if (e.target === signupModal) {
                 signupModal.classList.remove('active');
             }
-        });
-
-        // Handle Login Form Submission
-        loginForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
-            
-            alert(`Login Successful!\nEmail: ${email}`);
-            loginModal.classList.remove('active');
-            this.reset();
-        });
-
-        // Handle Signup Form Submission
-        signupForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const name = document.getElementById('signupName').value;
-            const email = document.getElementById('signupEmail').value;
-            const phone = document.getElementById('signupPhone').value;
-            const password = document.getElementById('signupPassword').value;
-            
-            alert(`Account Created Successfully!\nName: ${name}\nEmail: ${email}\nPhone: ${phone}`);
-            signupModal.classList.remove('active');
-            this.reset();
         });
 
         // Newsletter form submission

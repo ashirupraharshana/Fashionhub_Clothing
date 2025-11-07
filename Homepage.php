@@ -6,7 +6,7 @@
 </head>
 <body>
 
-<?php include 'Components/navbar.html'; ?>  
+<?php include 'Components/NavBar.php'; ?>  
 
 <section class="content">
     <h1>Welcome to FashionHub Clothing Store</h1>
