@@ -403,12 +403,12 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     <i class="fas fa-th-large"></i>
                     <span class="menu-text">Dashboard</span>
                 </a>
-                <a href="products.php" class="menu-item <?php echo ($current_page == 'products.php') ? 'active' : ''; ?>">
+                <a href="ManageProducts.php" class="menu-item <?php echo ($current_page == 'products.php') ? 'active' : ''; ?>">
                     <i class="fas fa-tshirt"></i>
                     <span class="menu-text">Products</span>
                     <span class="menu-badge">245</span>
                 </a>
-                <a href="categories.php" class="menu-item <?php echo ($current_page == 'categories.php') ? 'active' : ''; ?>">
+                <a href="ManageCategory.php" class="menu-item <?php echo ($current_page == 'categories.php') ? 'active' : ''; ?>">
                     <i class="fas fa-tags"></i>
                     <span class="menu-text">Categories</span>
                 </a>
