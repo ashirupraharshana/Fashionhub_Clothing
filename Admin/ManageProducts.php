@@ -955,11 +955,7 @@ $result = $conn->query($query);
                             <div class="discount-badge"><?php echo $row['discount']; ?>% OFF</div>
                         <?php endif; ?>
                         
-                        <?php if ($row['gender'] !== null): ?>
-                            <div class="gender-badge <?php echo $row['gender'] == 0 ? 'men' : 'women'; ?>">
-                                <?php echo $row['gender'] == 0 ? 'Men' : 'Women'; ?>
-                            </div>
-                        <?php endif; ?>
+                       
                         
                         <div class="stock-badge <?php echo $stock_class; ?>"><?php echo $stock_status; ?></div>
                         

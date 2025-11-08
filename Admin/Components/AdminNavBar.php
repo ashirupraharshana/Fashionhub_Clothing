@@ -412,7 +412,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     <i class="fas fa-tags"></i>
                     <span class="menu-text">Categories</span>
                 </a>
-                <a href="orders.php" class="menu-item <?php echo ($current_page == 'orders.php') ? 'active' : ''; ?>">
+                <a href="/fashionhub/Admin/ManageOrders.php" class="menu-item <?php echo ($current_page == 'orders.php') ? 'active' : ''; ?>">
                     <i class="fas fa-shopping-cart"></i>
                     <span class="menu-text">Orders</span>
                     <span class="menu-badge">12</span>
