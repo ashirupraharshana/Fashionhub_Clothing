@@ -15,6 +15,27 @@ if ($conn->connect_error) {
 $message = "";
 $messageType = ""; 
 
+// ====== DELETE CART ITEM ======
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] == 'delete_cart_item') {
+    if (isset($_SESSION['user_id']) && isset($_POST['cart_id'])) {
+        $cart_id = intval($_POST['cart_id']);
+        $user_id = $_SESSION['user_id'];
+        
+        $deleteQuery = "DELETE FROM cart WHERE id = ? AND user_id = ?";
+        $stmt = $conn->prepare($deleteQuery);
+        $stmt->bind_param("ii", $cart_id, $user_id);
+        
+        if ($stmt->execute()) {
+            $message = "Item removed from cart successfully!";
+            $messageType = "success";
+        } else {
+            $message = "Error removing item from cart.";
+            $messageType = "error";
+        }
+        $stmt->close();
+    }
+}
+
 // ====== SIGNUP FORM ======
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] == 'signup') {
     $fullname = trim($_POST['fullname']);
@@ -110,8 +131,8 @@ if (isset($_SESSION['user_id'])) {
     $cart_count = $cart_count_row['total'] ?? 0;
     $stmt->close();
     
-    // Get cart total
-    $cart_total_sql = "SELECT SUM(total_price) as total FROM cart WHERE user_id = ?";
+    // Get cart total - FIXED: Calculate from (price * quantity) for each item
+    $cart_total_sql = "SELECT SUM(price * quantity) as total FROM cart WHERE user_id = ?";
     $stmt = $conn->prepare($cart_total_sql);
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
@@ -121,7 +142,9 @@ if (isset($_SESSION['user_id'])) {
     $stmt->close();
     
     // Store cart items in an array
-    $cart_items_sql = "SELECT c.*, p.product_name, p.product_photo 
+    $cart_items_sql = "SELECT c.id, c.product_id, c.quantity, c.price, 
+                       (c.price * c.quantity) as item_total,
+                       p.product_name, p.product_photo 
                        FROM cart c 
                        JOIN products p ON c.product_id = p.id 
                        WHERE c.user_id = ? 
@@ -669,14 +692,14 @@ if (isset($_SESSION['user_id'])) {
             top: 100%;
             right: 0;
             margin-top: 15px;
-            width: 380px;
+            width: 420px;
             background: white;
             border-radius: 12px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
             display: none !important;
             flex-direction: column;
             z-index: 9999;
-            max-height: 500px;
+            max-height: 600px;
         }
 
         .cart-dropdown.show {
@@ -775,6 +798,7 @@ if (isset($_SESSION['user_id'])) {
             border-radius: 8px;
             transition: all 0.3s;
             margin-bottom: 10px;
+            position: relative;
         }
 
         .cart-item:hover {
@@ -824,6 +848,34 @@ if (isset($_SESSION['user_id'])) {
             color: #e74c3c;
         }
 
+        .delete-cart-item {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: #ff4757;
+            color: white;
+            border: none;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            transition: all 0.3s;
+            opacity: 0;
+        }
+
+        .cart-item:hover .delete-cart-item {
+            opacity: 1;
+        }
+
+        .delete-cart-item:hover {
+            background: #ee5a6f;
+            transform: scale(1.1);
+        }
+
         .cart-empty {
             text-align: center;
             padding: 40px 20px;
@@ -854,6 +906,7 @@ if (isset($_SESSION['user_id'])) {
             justify-content: space-between;
             align-items: center;
             font-size: 16px;
+            margin-bottom: 15px;
         }
 
         .cart-subtotal-label {
@@ -865,6 +918,28 @@ if (isset($_SESSION['user_id'])) {
             font-size: 22px;
             font-weight: 700;
             color: #e74c3c;
+        }
+
+        .checkout-btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .checkout-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(39, 174, 96, 0.4);
         }
 
         @media (max-width: 968px) {
@@ -961,7 +1036,7 @@ if (isset($_SESSION['user_id'])) {
                     <button class="icon-button" id="cartToggle" title="Shopping Cart">
                         <i class="fas fa-shopping-cart"></i>
                         <?php if (isset($_SESSION['user_id']) && $cart_count > 0): ?>
-                            <span class="badge"><?php echo $cart_count; ?></span>
+                            <span class="badge" id="cartBadge"><?php echo $cart_count; ?></span>
                         <?php endif; ?>
                     </button>
                     
@@ -971,7 +1046,7 @@ if (isset($_SESSION['user_id'])) {
                                 <i class="fas fa-shopping-bag"></i>
                                 Shopping Cart
                                 <?php if (isset($_SESSION['user_id']) && $cart_count > 0): ?>
-                                    <span class="cart-count-badge"><?php echo $cart_count; ?></span>
+                                    <span class="cart-count-badge" id="cartCountBadge"><?php echo $cart_count; ?></span>
                                 <?php endif; ?>
                             </h3>
                             <button class="close-cart-dropdown" id="closeCartDropdown">
@@ -979,7 +1054,7 @@ if (isset($_SESSION['user_id'])) {
                             </button>
                         </div>
 
-                        <div class="cart-dropdown-body">
+                        <div class="cart-dropdown-body" id="cartDropdownBody">
                             <?php if (isset($_SESSION['user_id'])): ?>
                                 <?php if (!empty($cart_items_array)): ?>
                                     <?php foreach($cart_items_array as $item): ?>
@@ -993,9 +1068,16 @@ if (isset($_SESSION['user_id'])) {
                                                 </div>
                                                 <div class="cart-item-info">
                                                     <span class="cart-item-quantity">Qty: <?php echo $item['quantity']; ?></span>
-                                                    <span class="cart-item-price">Rs. <?php echo number_format($item['total_price'], 2); ?></span>
+                                                    <span class="cart-item-price">Rs. <?php echo number_format($item['item_total'], 2); ?></span>
                                                 </div>
                                             </div>
+                                            <form method="POST" style="display: inline;">
+                                                <input type="hidden" name="action" value="delete_cart_item">
+                                                <input type="hidden" name="cart_id" value="<?php echo $item['id']; ?>">
+                                                <button type="submit" class="delete-cart-item" title="Remove item" onclick="return confirm('Remove this item from cart?')">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
                                         </div>
                                     <?php endforeach; ?>
                                 <?php else: ?>
@@ -1015,11 +1097,17 @@ if (isset($_SESSION['user_id'])) {
                         </div>
 
                         <?php if (isset($_SESSION['user_id']) && $cart_count > 0): ?>
-                            <div class="cart-dropdown-footer">
+                            <div class="cart-dropdown-footer" id="cartDropdownFooter">
                                 <div class="cart-subtotal">
                                     <span class="cart-subtotal-label">Total:</span>
-                                    <span class="cart-subtotal-amount">Rs. <?php echo number_format($cart_total, 2); ?></span>
+                                    <span class="cart-subtotal-amount" id="cartTotalAmount">Rs. <?php echo number_format($cart_total, 2); ?></span>
                                 </div>
+                                <form method="GET" action="/fashionhub/Customer/CartItemCheckout.php">
+                                    <button type="submit" class="checkout-btn">
+                                        <i class="fas fa-credit-card"></i>
+                                        Proceed to Checkout
+                                    </button>
+                                </form>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -1284,7 +1372,7 @@ if (isset($_SESSION['user_id'])) {
                 }
             });
 
-            // CART DROPDOWN - FIXED
+            // CART DROPDOWN
             if (cartToggle && cartDropdown) {
                 cartToggle.addEventListener('click', function(e) {
                     e.preventDefault();
@@ -1338,6 +1426,139 @@ if (isset($_SESSION['user_id'])) {
 
             console.log('All event listeners initialized!');
         });
+
+        // GLOBAL FUNCTION TO UPDATE CART FROM OTHER PAGES
+        window.updateCartDisplay = function(cartData) {
+            console.log('Updating cart display:', cartData);
+            
+            // Update badge
+            const cartBadge = document.getElementById('cartBadge');
+            const cartCountBadge = document.getElementById('cartCountBadge');
+            
+            if (cartData.cart_count > 0) {
+                if (cartBadge) {
+                    cartBadge.textContent = cartData.cart_count;
+                    cartBadge.style.display = 'block';
+                } else {
+                    // Create badge if it doesn't exist
+                    const cartToggle = document.getElementById('cartToggle');
+                    if (cartToggle) {
+                        const newBadge = document.createElement('span');
+                        newBadge.className = 'badge';
+                        newBadge.id = 'cartBadge';
+                        newBadge.textContent = cartData.cart_count;
+                        cartToggle.appendChild(newBadge);
+                    }
+                }
+                
+                if (cartCountBadge) {
+                    cartCountBadge.textContent = cartData.cart_count;
+                    cartCountBadge.style.display = 'inline-block';
+                } else {
+                    // Create count badge in header
+                    const headerH3 = document.querySelector('.cart-dropdown-header h3');
+                    if (headerH3) {
+                        const newCountBadge = document.createElement('span');
+                        newCountBadge.className = 'cart-count-badge';
+                        newCountBadge.id = 'cartCountBadge';
+                        newCountBadge.textContent = cartData.cart_count;
+                        headerH3.appendChild(newCountBadge);
+                    }
+                }
+            } else {
+                if (cartBadge) cartBadge.style.display = 'none';
+                if (cartCountBadge) cartCountBadge.style.display = 'none';
+            }
+            
+            // Update cart body
+            const cartBody = document.getElementById('cartDropdownBody');
+            if (cartBody) {
+                cartBody.innerHTML = '';
+                
+                if (cartData.cart_items && cartData.cart_items.length > 0) {
+                    cartData.cart_items.forEach(item => {
+                        const cartItem = document.createElement('div');
+                        cartItem.className = 'cart-item';
+                        cartItem.innerHTML = `
+                            <img src="data:image/jpeg;base64,${item.product_photo}" 
+                                 alt="${escapeHtml(item.product_name)}" 
+                                 class="cart-item-image">
+                            <div class="cart-item-details">
+                                <div class="cart-item-name">${escapeHtml(item.product_name)}</div>
+                                <div class="cart-item-info">
+                                    <span class="cart-item-quantity">Qty: ${item.quantity}</span>
+                                    <span class="cart-item-price">Rs. ${parseFloat(item.price * item.quantity).toFixed(2)}</span>
+                                </div>
+                            </div>
+                            <form method="POST" style="display: inline;">
+                                <input type="hidden" name="action" value="delete_cart_item">
+                                <input type="hidden" name="cart_id" value="${item.id}">
+                                <button type="submit" class="delete-cart-item" title="Remove item" onclick="return confirm('Remove this item from cart?')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </form>
+                        `;
+                        cartBody.appendChild(cartItem);
+                    });
+                } else {
+                    cartBody.innerHTML = `
+                        <div class="cart-empty">
+                            <i class="fas fa-shopping-cart"></i>
+                            <p><strong>Your cart is empty</strong></p>
+                            <p>Add some products to get started!</p>
+                        </div>
+                    `;
+                }
+            }
+            
+            // Update footer
+            const cartFooter = document.getElementById('cartDropdownFooter');
+            const cartTotalAmount = document.getElementById('cartTotalAmount');
+            
+            if (cartData.cart_count > 0) {
+                if (cartTotalAmount) {
+                    cartTotalAmount.textContent = 'Rs. ' + parseFloat(cartData.cart_total).toFixed(2);
+                }
+                
+                if (cartFooter) {
+                    cartFooter.style.display = 'block';
+                } else {
+                    // Create footer if it doesn't exist
+                    const cartDropdown = document.getElementById('cartDropdown');
+                    if (cartDropdown) {
+                        const newFooter = document.createElement('div');
+                        newFooter.className = 'cart-dropdown-footer';
+                        newFooter.id = 'cartDropdownFooter';
+                        newFooter.innerHTML = `
+                            <div class="cart-subtotal">
+                                <span class="cart-subtotal-label">Total:</span>
+                                <span class="cart-subtotal-amount" id="cartTotalAmount">Rs. ${parseFloat(cartData.cart_total).toFixed(2)}</span>
+                            </div>
+                            <form method="GET" action="/fashionhub/Customer/CartItemCheckout.php">
+                                <button type="submit" class="checkout-btn">
+                                    <i class="fas fa-credit-card"></i>
+                                    Proceed to Checkout
+                                </button>
+                            </form>
+                        `;
+                        cartDropdown.appendChild(newFooter);
+                    }
+                }
+            } else {
+                if (cartFooter) cartFooter.style.display = 'none';
+            }
+        };
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
     </script>
 </body>
 </html>
