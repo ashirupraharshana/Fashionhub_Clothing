@@ -1026,7 +1026,7 @@ if (isset($_SESSION['user_id'])) {
                 <li><a href="/fashionhub/Customer/CustomerDashboard.php">Home</a></li>
                 <li><a href="/fashionhub/Customer/Products.php">Products</a></li>
                 <li><a href="/fashionhub/Customer/CustomerOrders.php">My Orders</a></li>
-                <li><a href="#sale">Sale</a></li>
+                <li><a href="/fashionhub/Customer/Feedback.php">Feedbacks</a></li>
                 <li><a href="#about">About</a></li>
                 <li><a href="#contact">Contact</a></li>
             </ul>
