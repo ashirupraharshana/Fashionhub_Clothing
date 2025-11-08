@@ -16,15 +16,46 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_add_to_cart'])) {
     $price = $_POST['price'];
     $quantity = 1;
 
+    // ====== CHECK PRODUCT STOCK QUANTITY ======
+    $stock_check_sql = "SELECT stock_quantity, product_name FROM products WHERE id = ?";
+    $stmt = $conn->prepare($stock_check_sql);
+    $stmt->bind_param("i", $product_id);
+    $stmt->execute();
+    $stock_result = $stmt->get_result();
+    $product = $stock_result->fetch_assoc();
+    
+    if (!$product) {
+        echo json_encode(['success' => false, 'message' => 'Product not found!']);
+        exit;
+    }
+    
+    $available_stock = $product['stock_quantity'];
+    $product_name = $product['product_name'];
+    $stmt->close();
+
     // Check if product already exists in cart
-    $check_sql = "SELECT * FROM cart WHERE user_id = ? AND product_id = ?";
+    $check_sql = "SELECT quantity FROM cart WHERE user_id = ? AND product_id = ?";
     $stmt = $conn->prepare($check_sql);
     $stmt->bind_param("ii", $user_id, $product_id);
     $stmt->execute();
     $result = $stmt->get_result();
 
     if ($result->num_rows > 0) {
-        // Update quantity only (total calculated dynamically)
+        // Product exists in cart - check if we can add more
+        $cart_item = $result->fetch_assoc();
+        $current_cart_quantity = $cart_item['quantity'];
+        $new_quantity = $current_cart_quantity + 1;
+        
+        // Validate against available stock
+        if ($new_quantity > $available_stock) {
+            echo json_encode([
+                'success' => false, 
+                'message' => "Cannot add more! Only {$available_stock} units available (you already have {$current_cart_quantity} in cart)."
+            ]);
+            exit;
+        }
+        
+        // Update quantity
         $update_sql = "UPDATE cart 
                        SET quantity = quantity + 1
                        WHERE user_id = ? AND product_id = ?";
@@ -32,6 +63,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_add_to_cart'])) {
         $stmt->bind_param("ii", $user_id, $product_id);
         $stmt->execute();
     } else {
+        // New product - check stock before adding
+        if ($quantity > $available_stock) {
+            echo json_encode([
+                'success' => false, 
+                'message' => "Cannot add to cart! Only {$available_stock} units available."
+            ]);
+            exit;
+        }
+        
         // Insert new product into cart
         $insert_sql = "INSERT INTO cart (user_id, product_id, quantity, price) 
                        VALUES (?, ?, ?, ?)";
@@ -78,7 +118,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_add_to_cart'])) {
 
     echo json_encode([
         'success' => true, 
-        'message' => 'Product added to cart!', 
+        'message' => 'Product added to cart successfully!', 
         'cart_count' => $cart_count,
         'cart_items' => $cart_items,
         'cart_total' => $cart_total
@@ -162,25 +202,6 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             max-width: 1400px;
             margin: 0 auto;
             padding: 40px 20px;
-        }
-
-        .page-header {
-            text-align: center;
-            margin-bottom: 50px;
-        }
-
-        .page-header h1 {
-            font-size: 48px;
-            color: #2c3e50;
-            margin-bottom: 12px;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-        }
-
-        .page-header p {
-            font-size: 18px;
-            color: #7f8c8d;
-            font-weight: 400;
         }
 
         .toolbar {
@@ -285,7 +306,6 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
             gap: 35px;
-            perspective: 1000px;
         }
 
         .product-card {
@@ -296,31 +316,12 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
             border: 1px solid #f0f0f0;
-            backdrop-filter: blur(10px);
-        }
-
-        .product-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(135deg, rgba(231, 76, 60, 0) 0%, rgba(231, 76, 60, 0.03) 100%);
-            opacity: 0;
-            transition: opacity 0.4s ease;
-            pointer-events: none;
-            z-index: 1;
         }
 
         .product-card:hover {
             transform: translateY(-12px) scale(1.02);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(231, 76, 60, 0.2);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
             border-color: rgba(231, 76, 60, 0.3);
-        }
-
-        .product-card:hover::before {
-            opacity: 1;
         }
 
         .product-image {
@@ -335,67 +336,19 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             border-bottom: 3px solid #e8e8e8;
         }
 
-        .product-image::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: radial-gradient(circle at 30% 30%, rgba(231, 76, 60, 0.05) 0%, transparent 70%);
-            pointer-events: none;
-            z-index: 1;
-        }
-
-        .product-image::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.02) 100%);
-            pointer-events: none;
-            z-index: 3;
-        }
-
         .product-image img {
             width: 100%;
             height: 100%;
             object-fit: cover;
             transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            z-index: 2;
-        }
-
-        .product-card:hover .product-image {
-            border-bottom-color: #e74c3c;
         }
 
         .product-card:hover .product-image img {
             transform: scale(1.12) rotate(2deg);
-            filter: brightness(1.08) contrast(1.05);
-        }
-
-        .product-image i {
-            font-size: 55px;
-            color: #cbd5e0;
-            position: relative;
-            z-index: 2;
-            opacity: 0.5;
-            transition: all 0.3s ease;
-        }
-
-        .product-card:hover .product-image i {
-            transform: scale(1.1);
-            opacity: 0.7;
         }
 
         .product-info {
             padding: 22px 20px;
-            position: relative;
-            z-index: 2;
-            background: white;
         }
 
         .product-category {
@@ -405,10 +358,6 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             letter-spacing: 1.3px;
             margin-bottom: 8px;
             font-weight: 700;
-            background: linear-gradient(90deg, #e74c3c 0%, #c0392b 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
         }
 
         .product-name {
@@ -419,9 +368,6 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             line-height: 1.35;
             height: 46px;
             overflow: hidden;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
         }
 
         .product-attributes {
@@ -436,24 +382,12 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             align-items: center;
             gap: 4px;
             padding: 5px 10px;
-            background: linear-gradient(135deg, #f8f9fa 0%, #f1f3f5 100%);
+            background: #f8f9fa;
             border-radius: 6px;
             font-size: 11px;
             color: #2c3e50;
             font-weight: 600;
             border: 1px solid #e8e8e8;
-            transition: all 0.3s ease;
-        }
-
-        .product-card:hover .attribute-tag {
-            background: linear-gradient(135deg, #fff 0%, #f8f9fa 100%);
-            border-color: #e74c3c;
-            transform: translateY(-1px);
-        }
-
-        .attribute-tag i {
-            font-size: 10px;
-            color: #7f8c8d;
         }
 
         .product-price-section {
@@ -467,10 +401,6 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             font-size: 24px;
             font-weight: 800;
             color: #e74c3c;
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
         }
 
         .product-original-price {
@@ -495,11 +425,6 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             width: fit-content;
         }
 
-        .product-stock i {
-            color: #e74c3c;
-            font-size: 11px;
-        }
-
         .product-actions {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -514,41 +439,19 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             font-size: 12px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .action-button::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 0;
-            height: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.2);
-            transform: translate(-50%, -50%);
-            transition: width 0.5s, height 0.5s;
-        }
-
-        .action-button:hover::before {
-            width: 300px;
-            height: 300px;
         }
 
         .add-cart-btn {
             background: linear-gradient(135deg, #2c3e50 0%, #1a252f 100%);
             color: white;
-            box-shadow: 0 2px 8px rgba(44, 62, 80, 0.2);
         }
 
         .add-cart-btn:hover:not(:disabled) {
-            background: linear-gradient(135deg, #1a252f 0%, #0d1418 100%);
             transform: translateY(-3px);
             box-shadow: 0 6px 20px rgba(44, 62, 80, 0.35);
         }
@@ -556,52 +459,30 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
         .order-now-btn {
             background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             color: white;
-            box-shadow: 0 2px 8px rgba(231, 76, 60, 0.2);
         }
 
         .order-now-btn:hover:not(:disabled) {
-            background: linear-gradient(135deg, #c0392b 0%, #a93226 100%);
             transform: translateY(-3px);
             box-shadow: 0 6px 20px rgba(231, 76, 60, 0.4);
         }
 
-        .add-cart-btn:disabled,
-        .order-now-btn:disabled {
-            background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%);
+        .action-button:disabled {
+            background: #95a5a6;
             cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
             opacity: 0.6;
-        }
-
-        .action-button i {
-            position: relative;
-            z-index: 1;
-        }
-
-        .action-button span {
-            position: relative;
-            z-index: 1;
         }
 
         .discount-badge {
             position: absolute;
             top: 12px;
             left: 12px;
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            background: #e74c3c;
             color: white;
             padding: 7px 12px;
             border-radius: 8px;
             font-size: 12px;
             font-weight: 700;
             z-index: 10;
-            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
         }
 
         .gender-badge {
@@ -613,21 +494,16 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             font-size: 11px;
             font-weight: 600;
             z-index: 10;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            backdrop-filter: blur(10px);
         }
 
         .gender-badge.men {
-            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            background: #3498db;
             color: white;
-            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
         }
 
         .gender-badge.women {
-            background: linear-gradient(135deg, #e91e63 0%, #c2185b 100%);
+            background: #e91e63;
             color: white;
-            box-shadow: 0 2px 8px rgba(233, 30, 99, 0.3);
         }
 
         .stock-badge {
@@ -639,50 +515,21 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             font-size: 11px;
             font-weight: 600;
             z-index: 10;
-            backdrop-filter: blur(10px);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         }
 
         .stock-badge.in-stock {
-            background: rgba(46, 204, 113, 0.95);
+            background: #2ecc71;
             color: white;
         }
 
         .stock-badge.low-stock {
-            background: rgba(241, 196, 15, 0.95);
+            background: #f1c40f;
             color: #2c3e50;
         }
 
         .stock-badge.out-of-stock {
-            background: rgba(149, 165, 166, 0.95);
+            background: #95a5a6;
             color: white;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 100px 20px;
-            grid-column: 1 / -1;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-        }
-
-        .empty-state i {
-            font-size: 80px;
-            color: #e8e8e8;
-            margin-bottom: 25px;
-        }
-
-        .empty-state h3 {
-            font-size: 28px;
-            color: #2c3e50;
-            margin-bottom: 12px;
-            font-weight: 700;
-        }
-
-        .empty-state p {
-            font-size: 16px;
-            color: #7f8c8d;
         }
 
         .toast {
@@ -696,15 +543,20 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             display: flex;
             align-items: center;
             gap: 12px;
-            transform: translateX(400px);
-            transition: transform 0.3s ease;
+            transform: translateX(450px);
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             z-index: 3000;
             min-width: 320px;
+            max-width: 450px;
             border: 1px solid #e8e8e8;
+            opacity: 0;
+            visibility: hidden;
         }
 
         .toast.show {
             transform: translateX(0);
+            opacity: 1;
+            visibility: visible;
         }
 
         .toast.success {
@@ -732,6 +584,8 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             color: #2c3e50;
             font-weight: 600;
             font-size: 14px;
+            line-height: 1.4;
+            word-wrap: break-word;
         }
 
         .toast-close {
@@ -740,12 +594,6 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             color: #95a5a6;
             font-size: 20px;
             cursor: pointer;
-            padding: 0;
-            transition: color 0.3s;
-        }
-
-        .toast-close:hover {
-            color: #7f8c8d;
         }
 
         .spinner {
@@ -762,46 +610,38 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             to { transform: rotate(360deg); }
         }
 
+        .empty-state {
+            text-align: center;
+            padding: 100px 20px;
+            grid-column: 1 / -1;
+            background: white;
+            border-radius: 12px;
+        }
+
+        .empty-state i {
+            font-size: 80px;
+            color: #e8e8e8;
+            margin-bottom: 25px;
+        }
+
+        .empty-state h3 {
+            font-size: 28px;
+            color: #2c3e50;
+            margin-bottom: 12px;
+        }
+
         @media (max-width: 768px) {
             .product-gallery {
                 grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
                 gap: 25px;
             }
             
-            .product-image {
-                height: 200px;
-            }
-            
-            .product-info {
-                padding: 18px 16px;
-            }
-            
-            .product-actions {
-                grid-template-columns: 1fr;
-            }
-
-            .page-header h1 {
-                font-size: 32px;
-            }
-
             .toolbar {
                 flex-direction: column;
-                padding: 20px;
             }
 
             .search-box {
                 width: 100%;
-            }
-
-            .filter-select {
-                width: 100%;
-            }
-
-            .toast {
-                right: 15px;
-                left: 15px;
-                bottom: 15px;
-                min-width: auto;
             }
         }
     </style>
@@ -810,7 +650,7 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
     <div class="page-container">
         <div class="toolbar">
             <div class="search-box">
-                <form method="GET" action="Products.php" id="searchForm">
+                <form method="GET" action="Products.php">
                     <input type="text" name="search" placeholder="Search products..." value="<?php echo htmlspecialchars($search); ?>">
                     <input type="hidden" name="category" value="<?php echo htmlspecialchars($category_filter); ?>">
                     <input type="hidden" name="gender" value="<?php echo htmlspecialchars($gender_filter); ?>">
@@ -819,7 +659,7 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
                 </form>
             </div>
 
-            <form method="GET" action="Products.php" id="filterForm" style="display: contents;">
+            <form method="GET" action="Products.php" style="display: contents;">
                 <input type="hidden" name="search" value="<?php echo htmlspecialchars($search); ?>">
                 
                 <select name="category" class="filter-select" onchange="this.form.submit()">
@@ -893,9 +733,7 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
                             
                             <?php if (!empty($row['product_photo'])): ?>
                                 <img src="data:image/jpeg;base64,<?php echo $row['product_photo']; ?>" 
-                                     alt="<?php echo htmlspecialchars($row['product_name']); ?>"
-                                     onerror="this.style.display='none'; this.parentElement.querySelector('i').style.display='block';">
-                                <i class="fas fa-box" style="display: none;"></i>
+                                     alt="<?php echo htmlspecialchars($row['product_name']); ?>">
                             <?php else: ?>
                                 <i class="fas fa-box"></i>
                             <?php endif; ?>
@@ -1031,8 +869,6 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
         }
 
         function updateCartDropdown(cartItems, cartTotal, cartCount) {
-            console.log('Updating cart dropdown:', { cartItems, cartTotal, cartCount });
-            
             if (typeof window.updateCartDisplay === 'function') {
                 window.updateCartDisplay({
                     cart_count: cartCount,
@@ -1047,12 +883,7 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             const cartCountBadge = document.querySelector('.cart-count-badge');
             const cartBadge = document.getElementById('cartBadge');
             
-            console.log('Found elements:', { cartBody, cartFooter, cartCountBadge, cartBadge });
-            
-            if (!cartBody) {
-                console.error('Cart body not found!');
-                return;
-            }
+            if (!cartBody) return;
             
             if (cartCountBadge) {
                 cartCountBadge.textContent = cartCount;
@@ -1062,15 +893,6 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             if (cartBadge) {
                 cartBadge.textContent = cartCount;
                 cartBadge.style.display = cartCount > 0 ? 'block' : 'none';
-            } else if (cartCount > 0) {
-                const cartToggle = document.getElementById('cartToggle');
-                if (cartToggle) {
-                    const newBadge = document.createElement('span');
-                    newBadge.className = 'badge';
-                    newBadge.id = 'cartBadge';
-                    newBadge.textContent = cartCount;
-                    cartToggle.appendChild(newBadge);
-                }
             }
             
             cartBody.innerHTML = '';
@@ -1117,44 +939,9 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
                     const totalAmountSpan = cartFooter.querySelector('.cart-subtotal-amount');
                     if (totalAmountSpan) {
                         totalAmountSpan.textContent = 'Rs. ' + parseFloat(cartTotal).toFixed(2);
-                    } else {
-                        cartFooter.innerHTML = `
-                            <div class="cart-subtotal">
-                                <span class="cart-subtotal-label">Total:</span>
-                                <span class="cart-subtotal-amount">Rs. ${parseFloat(cartTotal).toFixed(2)}</span>
-                            </div>
-                            <form method="GET" action="/fashionhub/Customer/CartItemCheckout.php">
-                                <button type="submit" class="checkout-btn">
-                                    <i class="fas fa-credit-card"></i>
-                                    Proceed to Checkout
-                                </button>
-                            </form>
-                        `;
-                    }
-                } else {
-                    const cartDropdown = document.getElementById('cartDropdown');
-                    if (cartDropdown) {
-                        const newFooter = document.createElement('div');
-                        newFooter.className = 'cart-dropdown-footer';
-                        newFooter.id = 'cartDropdownFooter';
-                        newFooter.innerHTML = `
-                            <div class="cart-subtotal">
-                                <span class="cart-subtotal-label">Total:</span>
-                                <span class="cart-subtotal-amount" id="cartTotalAmount">Rs. ${parseFloat(cartTotal).toFixed(2)}</span>
-                            </div>
-                            <form method="GET" action="/fashionhub/Customer/CartItemCheckout.php">
-                                <button type="submit" class="checkout-btn">
-                                    <i class="fas fa-credit-card"></i>
-                                    Proceed to Checkout
-                                </button>
-                            </form>
-                        `;
-                        cartDropdown.appendChild(newFooter);
                     }
                 }
             }
-            
-            console.log('Cart dropdown updated successfully!');
         }
 
         function escapeHtml(text) {
@@ -1168,30 +955,60 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             return text.replace(/[&<>"']/g, m => map[m]);
         }
 
+        let toastTimeout;
+
         function showToast(message, type = 'success') {
             const toast = document.getElementById('toast');
             const icon = toast.querySelector('i');
             const messageEl = toast.querySelector('.toast-message');
 
-            messageEl.textContent = message;
-            toast.className = `toast ${type}`;
+            console.log('showToast called:', message, type);
 
-            if (type === 'success') {
-                icon.className = 'fas fa-check-circle';
-            } else {
-                icon.className = 'fas fa-exclamation-circle';
+            // Clear any existing timeout
+            if (toastTimeout) {
+                clearTimeout(toastTimeout);
+                toastTimeout = null;
             }
 
-            toast.classList.add('show');
+            // Force hide first
+            toast.classList.remove('show');
+            
+            // Force browser reflow to ensure animation restarts
+            void toast.offsetWidth;
 
+            // Update content after a brief moment
             setTimeout(() => {
-                hideToast();
-            }, 3000);
+                messageEl.textContent = message;
+                toast.className = `toast ${type}`;
+
+                if (type === 'success') {
+                    icon.className = 'fas fa-check-circle';
+                } else if (type === 'error') {
+                    icon.className = 'fas fa-exclamation-circle';
+                }
+
+                // Show toast
+                toast.classList.add('show');
+                console.log('Toast shown with class:', toast.className);
+
+                // Auto-hide after 5 seconds
+                toastTimeout = setTimeout(() => {
+                    console.log('Auto-hiding toast');
+                    hideToast();
+                }, 5000);
+            }, 50);
         }
 
         function hideToast() {
+            console.log('hideToast called');
             const toast = document.getElementById('toast');
             toast.classList.remove('show');
+            
+            // Clear timeout when manually closed
+            if (toastTimeout) {
+                clearTimeout(toastTimeout);
+                toastTimeout = null;
+            }
         }
 
         function orderNow(productId, price) {
