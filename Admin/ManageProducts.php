@@ -78,6 +78,8 @@ if (isset($_POST['add_product'])) {
     $price = floatval($_POST['price']);
     $discount = floatval($_POST['discount']);
     $stock_quantity = intval($_POST['stock_quantity']);
+    $gender = isset($_POST['gender']) && $_POST['gender'] !== '' ? intval($_POST['gender']) : null;
+    $size = isset($_POST['size']) && $_POST['size'] !== '' ? $_POST['size'] : null;
     $photo_base64 = null;
 
     if (isset($_FILES['product_photo']) && $_FILES['product_photo']['error'] == 0) {
@@ -103,10 +105,10 @@ if (isset($_POST['add_product'])) {
         }
     }
 
-    $sql = "INSERT INTO products (category_id, product_name, description, price, discount, stock_quantity, product_photo)
-            VALUES (?, ?, ?, ?, ?, ?, ?)";
+    $sql = "INSERT INTO products (category_id, product_name, description, price, discount, stock_quantity, gender, size, product_photo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("issddis", $category_id, $product_name, $description, $price, $discount, $stock_quantity, $photo_base64);
+    $stmt->bind_param("issddisss", $category_id, $product_name, $description, $price, $discount, $stock_quantity, $gender, $size, $photo_base64);
     
     if ($stmt->execute()) {
         $_SESSION['success'] = "Product added successfully!";
@@ -139,6 +141,8 @@ if (isset($_POST['edit_product'])) {
     $price = floatval($_POST['edit_price']);
     $discount = floatval($_POST['edit_discount']);
     $stock_quantity = intval($_POST['edit_stock_quantity']);
+    $gender = isset($_POST['edit_gender']) && $_POST['edit_gender'] !== '' ? intval($_POST['edit_gender']) : null;
+    $size = isset($_POST['edit_size']) && $_POST['edit_size'] !== '' ? $conn->real_escape_string($_POST['edit_size']) : null;
 
     $photo_update = "";
     if (isset($_FILES['edit_product_photo']) && $_FILES['edit_product_photo']['error'] == 0) {
@@ -162,13 +166,18 @@ if (isset($_POST['edit_product'])) {
         }
     }
 
+    $gender_value = $gender !== null ? $gender : 'NULL';
+    $size_value = $size !== null ? "'$size'" : 'NULL';
+
     if ($conn->query("UPDATE products 
                       SET category_id = $category_id, 
                           product_name = '$product_name', 
                           description = '$description',
                           price = $price,
                           discount = $discount,
-                          stock_quantity = $stock_quantity
+                          stock_quantity = $stock_quantity,
+                          gender = $gender_value,
+                          size = $size_value
                           $photo_update 
                       WHERE id = $id")) {
         $_SESSION['success'] = "Product updated successfully!";
@@ -186,6 +195,8 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
 // Handle Search and Filter
 $search = "";
 $category_filter = "";
+$gender_filter = "";
+$size_filter = "";
 $where_conditions = [];
 
 if (isset($_GET['search']) && !empty($_GET['search'])) {
@@ -196,6 +207,16 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
 if (isset($_GET['category']) && !empty($_GET['category'])) {
     $category_filter = intval($_GET['category']);
     $where_conditions[] = "p.category_id = $category_filter";
+}
+
+if (isset($_GET['gender']) && $_GET['gender'] !== '') {
+    $gender_filter = intval($_GET['gender']);
+    $where_conditions[] = "p.gender = $gender_filter";
+}
+
+if (isset($_GET['size']) && !empty($_GET['size'])) {
+    $size_filter = $conn->real_escape_string($_GET['size']);
+    $where_conditions[] = "p.size = '$size_filter'";
 }
 
 $where_clause = !empty($where_conditions) ? "WHERE " . implode(" AND ", $where_conditions) : "";
@@ -392,7 +413,7 @@ $result = $conn->query($query);
             cursor: pointer;
             background: white;
             transition: all 0.3s ease;
-            min-width: 180px;
+            min-width: 140px;
         }
 
         .filter-select:focus {
@@ -484,6 +505,28 @@ $result = $conn->query($query);
             z-index: 1;
         }
 
+        .gender-badge {
+            position: absolute;
+            top: 50px;
+            left: 15px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            z-index: 1;
+            text-transform: uppercase;
+        }
+
+        .gender-badge.men {
+            background: rgba(52, 152, 219, 0.9);
+            color: white;
+        }
+
+        .gender-badge.women {
+            background: rgba(231, 76, 60, 0.9);
+            color: white;
+        }
+
         .product-image {
             width: 100%;
             height: 200px;
@@ -540,6 +583,28 @@ $result = $conn->query($query);
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             overflow: hidden;
+        }
+
+        .product-attributes {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .attribute-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .attribute-tag i {
+            font-size: 10px;
         }
 
         .product-price-section {
@@ -634,7 +699,7 @@ $result = $conn->query($query);
             padding: 30px;
             border-radius: 15px;
             width: 100%;
-            max-width: 600px;
+            max-width: 700px;
             max-height: 90vh;
             overflow-y: auto;
             position: relative;
@@ -706,6 +771,12 @@ $result = $conn->query($query);
         .form-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .form-row-three {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 15px;
         }
 
@@ -839,7 +910,8 @@ $result = $conn->query($query);
                 justify-content: center;
             }
 
-            .form-row {
+            .form-row,
+            .form-row-three {
                 grid-template-columns: 1fr;
             }
         }
@@ -878,22 +950,31 @@ $result = $conn->query($query);
                     <form method="GET" action="ManageProducts.php" id="searchForm">
                         <input type="text" name="search" placeholder="Search products..." value="<?php echo htmlspecialchars($search); ?>">
                         <input type="hidden" name="category" value="<?php echo htmlspecialchars($category_filter); ?>">
+                        <input type="hidden" name="gender" value="<?php echo htmlspecialchars($gender_filter); ?>">
+                        <input type="hidden" name="size" value="<?php echo htmlspecialchars($size_filter); ?>">
                         <button type="submit"><i class="fas fa-search"></i></button>
                     </form>
                 </div>
-                <form method="GET" action="ManageProducts.php" id="filterForm">
+                <form method="GET" action="ManageProducts.php" id="filterForm" style="display: contents;">
                     <input type="hidden" name="search" value="<?php echo htmlspecialchars($search); ?>">
-                    <select name="category" class="filter-select" onchange="this.form.submit()">
-                        <option value="">All Categories</option>
-                        <?php 
-                        $categories->data_seek(0);
-                        while ($cat = $categories->fetch_assoc()): 
-                        ?>
-                            <option value="<?php echo $cat['id']; ?>" <?php echo $category_filter == $cat['id'] ? 'selected' : ''; ?>>
-                                <?php echo htmlspecialchars($cat['category_name']); ?>
-                            </option>
-                        <?php endwhile; ?>
+                    
+                    <select name="gender" class="filter-select" onchange="this.form.submit()">
+                        <option value="">All Genders</option>
+                        <option value="0" <?php echo $gender_filter === '0' || $gender_filter === 0 ? 'selected' : ''; ?>>Men</option>
+                        <option value="1" <?php echo $gender_filter === '1' || $gender_filter === 1 ? 'selected' : ''; ?>>Women</option>
                     </select>
+
+                    <select name="size" class="filter-select" onchange="this.form.submit()">
+                        <option value="">All Sizes</option>
+                        <option value="S" <?php echo $size_filter == 'S' ? 'selected' : ''; ?>>S</option>
+                        <option value="M" <?php echo $size_filter == 'M' ? 'selected' : ''; ?>>M</option>
+                        <option value="L" <?php echo $size_filter == 'L' ? 'selected' : ''; ?>>L</option>
+                        <option value="XL" <?php echo $size_filter == 'XL' ? 'selected' : ''; ?>>XL</option>
+                        <option value="XXL" <?php echo $size_filter == 'XXL' ? 'selected' : ''; ?>>XXL</option>
+                        <option value="XXXL" <?php echo $size_filter == 'XXXL' ? 'selected' : ''; ?>>XXXL</option>
+                    </select>
+
+                    <input type="hidden" name="category" value="<?php echo htmlspecialchars($category_filter); ?>">
                 </form>
             </div>
             <button class="add-product-btn" onclick="openAddModal()">
@@ -924,6 +1005,13 @@ $result = $conn->query($query);
                         <?php if ($row['discount'] > 0): ?>
                             <div class="discount-badge"><?php echo $row['discount']; ?>% OFF</div>
                         <?php endif; ?>
+                        
+                        <?php if ($row['gender'] !== null): ?>
+                            <div class="gender-badge <?php echo $row['gender'] == 0 ? 'men' : 'women'; ?>">
+                                <?php echo $row['gender'] == 0 ? 'Men' : 'Women'; ?>
+                            </div>
+                        <?php endif; ?>
+                        
                         <div class="stock-badge <?php echo $stock_class; ?>"><?php echo $stock_status; ?></div>
                         
                         <div class="product-image">
@@ -943,6 +1031,24 @@ $result = $conn->query($query);
                             <div class="product-description">
                                 <?php echo htmlspecialchars($row['description'] ?: 'No description available'); ?>
                             </div>
+                            
+                            <?php if ($row['gender'] !== null || $row['size'] !== null): ?>
+                            <div class="product-attributes">
+                                <?php if ($row['gender'] !== null): ?>
+                                <span class="attribute-tag">
+                                    <i class="fas fa-venus-mars"></i>
+                                    <?php echo $row['gender'] == 0 ? 'Men' : 'Women'; ?>
+                                </span>
+                                <?php endif; ?>
+                                
+                                <?php if ($row['size'] !== null): ?>
+                                <span class="attribute-tag">
+                                    <i class="fas fa-ruler"></i>
+                                    <?php echo htmlspecialchars($row['size']); ?>
+                                </span>
+                                <?php endif; ?>
+                            </div>
+                            <?php endif; ?>
                             
                             <div class="product-price-section">
                                 <div class="product-price">$<?php echo number_format($final_price, 2); ?></div>
@@ -1026,9 +1132,33 @@ $result = $conn->query($query);
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label>Stock Quantity *</label>
-                    <input type="number" name="stock_quantity" min="0" required placeholder="0">
+                <div class="form-row-three">
+                    <div class="form-group">
+                        <label>Stock Quantity *</label>
+                        <input type="number" name="stock_quantity" min="0" required placeholder="0">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Gender</label>
+                        <select name="gender">
+                            <option value="">Select Gender</option>
+                            <option value="0">Men</option>
+                            <option value="1">Women</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Size</label>
+                        <select name="size">
+                            <option value="">Select Size</option>
+                            <option value="S">S</option>
+                            <option value="M">M</option>
+                            <option value="L">L</option>
+                            <option value="XL">XL</option>
+                            <option value="XXL">XXL</option>
+                            <option value="XXXL">XXXL</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -1102,9 +1232,33 @@ $result = $conn->query($query);
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label>Stock Quantity *</label>
-                    <input type="number" name="edit_stock_quantity" id="edit_stock_quantity" min="0" required>
+                <div class="form-row-three">
+                    <div class="form-group">
+                        <label>Stock Quantity *</label>
+                        <input type="number" name="edit_stock_quantity" id="edit_stock_quantity" min="0" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Gender</label>
+                        <select name="edit_gender" id="edit_gender">
+                            <option value="">Select Gender</option>
+                            <option value="0">Men</option>
+                            <option value="1">Women</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Size</label>
+                        <select name="edit_size" id="edit_size">
+                            <option value="">Select Size</option>
+                            <option value="S">S</option>
+                            <option value="M">M</option>
+                            <option value="L">L</option>
+                            <option value="XL">XL</option>
+                            <option value="XXL">XXL</option>
+                            <option value="XXXL">XXXL</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -1186,6 +1340,8 @@ $result = $conn->query($query);
             document.getElementById('edit_price').value = data.price;
             document.getElementById('edit_discount').value = data.discount;
             document.getElementById('edit_stock_quantity').value = data.stock_quantity;
+            document.getElementById('edit_gender').value = data.gender !== null ? data.gender : '';
+            document.getElementById('edit_size').value = data.size || '';
         }
 
         function closeEditModal() {

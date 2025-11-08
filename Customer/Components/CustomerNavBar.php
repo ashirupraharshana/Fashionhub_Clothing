@@ -1,7 +1,7 @@
 <?php
-session_start();
-
-// Database connection
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 $servername = "localhost";
 $username = "root";
 $password = "";
@@ -72,20 +72,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
 
         if ($result->num_rows === 1) {
             $user = $result->fetch_assoc();
-if (password_verify($password, $user['password'])) {
-    $_SESSION['user_id'] = $user['id'];
-    $_SESSION['fullname'] = $user['fullname'];
-    $_SESSION['userrole'] = $user['userrole'];
+            if (password_verify($password, $user['password'])) {
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['fullname'] = $user['fullname'];
+                $_SESSION['userrole'] = $user['userrole'];
 
-    if ($user['userrole'] == 1) {
-        header("Location: /fashionhub/Admin/AdminDashboard.php");
-        exit;
-    } else {
-        header("Location: /fashionhub/Customer/CustomerDashboard.php");
-        exit;
-    }
-}
- else {
+                if ($user['userrole'] == 1) {
+                    header("Location: /fashionhub/Admin/AdminDashboard.php");
+                    exit;
+                } else {
+                    header("Location: /fashionhub/Customer/CustomerDashboard.php");
+                    exit;
+                }
+            } else {
                 $message = "Incorrect password.";
                 $messageType = "error";
             }
@@ -95,6 +94,52 @@ if (password_verify($password, $user['password'])) {
         }
         $stmt->close();
     }
+}
+
+// ====== FETCH CART DATA ======
+if (isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    
+    // Get cart count
+    $cart_count_sql = "SELECT SUM(quantity) as total FROM cart WHERE user_id = ?";
+    $stmt = $conn->prepare($cart_count_sql);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $cart_count_result = $stmt->get_result();
+    $cart_count_row = $cart_count_result->fetch_assoc();
+    $cart_count = $cart_count_row['total'] ?? 0;
+    $stmt->close();
+    
+    // Get cart total
+    $cart_total_sql = "SELECT SUM(total_price) as total FROM cart WHERE user_id = ?";
+    $stmt = $conn->prepare($cart_total_sql);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $cart_total_result = $stmt->get_result();
+    $cart_total_row = $cart_total_result->fetch_assoc();
+    $cart_total = $cart_total_row['total'] ?? 0;
+    $stmt->close();
+    
+    // Store cart items in an array
+    $cart_items_sql = "SELECT c.*, p.product_name, p.product_photo 
+                       FROM cart c 
+                       JOIN products p ON c.product_id = p.id 
+                       WHERE c.user_id = ? 
+                       ORDER BY c.id DESC";
+    $stmt = $conn->prepare($cart_items_sql);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    $cart_items_array = [];
+    while ($row = $result->fetch_assoc()) {
+        $cart_items_array[] = $row;
+    }
+    $stmt->close();
+} else {
+    $cart_count = 0;
+    $cart_total = 0;
+    $cart_items_array = [];
 }
 ?>
 
@@ -118,7 +163,6 @@ if (password_verify($password, $user['password'])) {
             padding-top: 70px;
         }
 
-        /* Message Alert */
         .alert {
             position: fixed;
             top: 80px;
@@ -127,7 +171,7 @@ if (password_verify($password, $user['password'])) {
             padding: 15px 30px;
             border-radius: 8px;
             font-weight: 500;
-            z-index: 3000;
+            z-index: 9999;
             animation: slideDown 0.3s ease;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             max-width: 500px;
@@ -155,7 +199,6 @@ if (password_verify($password, $user['password'])) {
             }
         }
 
-        /* Top Navigation Bar */
         .navbar {
             background: #fff;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
@@ -293,7 +336,6 @@ if (password_verify($password, $user['password'])) {
             transform: rotate(45deg) translate(-5px, -6px);
         }
 
-        /* Modal Styles */
         .modal {
             display: none;
             position: fixed;
@@ -460,7 +502,6 @@ if (password_verify($password, $user['password'])) {
             text-decoration: underline;
         }
 
-        /* Sidebar */
         .sidebar {
             position: fixed;
             top: 70px;
@@ -601,7 +642,6 @@ if (password_verify($password, $user['password'])) {
             transform: translateY(-3px);
         }
 
-        /* Overlay */
         .overlay {
             position: fixed;
             top: 70px;
@@ -620,7 +660,213 @@ if (password_verify($password, $user['password'])) {
             visibility: visible;
         }
 
-        /* Mobile Responsive */
+        .cart-dropdown-container {
+            position: relative;
+        }
+
+        .cart-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 15px;
+            width: 380px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            display: none !important;
+            flex-direction: column;
+            z-index: 9999;
+            max-height: 500px;
+        }
+
+        .cart-dropdown.show {
+            display: flex !important;
+            animation: dropdownSlide 0.3s ease;
+        }
+
+        @keyframes dropdownSlide {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .cart-dropdown::before {
+            content: '';
+            position: absolute;
+            top: -8px;
+            right: 20px;
+            width: 0;
+            height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-bottom: 8px solid white;
+        }
+
+        .cart-dropdown-header {
+            padding: 20px;
+            border-bottom: 2px solid #f0f0f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .cart-dropdown-header h3 {
+            font-size: 18px;
+            color: #333;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .cart-count-badge {
+            background: #e74c3c;
+            color: white;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: 600;
+        }
+
+        .close-cart-dropdown {
+            background: transparent;
+            border: none;
+            font-size: 20px;
+            color: #999;
+            cursor: pointer;
+            padding: 5px;
+            transition: all 0.3s;
+        }
+
+        .close-cart-dropdown:hover {
+            color: #333;
+        }
+
+        .cart-dropdown-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            max-height: 400px;
+        }
+
+        .cart-dropdown-body::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .cart-dropdown-body::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .cart-dropdown-body::-webkit-scrollbar-thumb {
+            background: #ddd;
+            border-radius: 3px;
+        }
+
+        .cart-item {
+            display: flex;
+            gap: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            transition: all 0.3s;
+            margin-bottom: 10px;
+        }
+
+        .cart-item:hover {
+            background: #f8f8f8;
+        }
+
+        .cart-item-image {
+            width: 70px;
+            height: 70px;
+            border-radius: 8px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+
+        .cart-item-details {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .cart-item-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            line-height: 1.3;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .cart-item-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .cart-item-quantity {
+            color: #999;
+        }
+
+        .cart-item-price {
+            font-weight: 600;
+            color: #e74c3c;
+        }
+
+        .cart-empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+
+        .cart-empty i {
+            font-size: 48px;
+            margin-bottom: 15px;
+            color: #ddd;
+        }
+
+        .cart-empty p {
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        .cart-dropdown-footer {
+            padding: 20px;
+            border-top: 2px solid #f0f0f0;
+            background: #fafafa;
+            border-radius: 0 0 12px 12px;
+            flex-shrink: 0;
+        }
+
+        .cart-subtotal {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 16px;
+        }
+
+        .cart-subtotal-label {
+            color: #666;
+            font-weight: 600;
+        }
+
+        .cart-subtotal-amount {
+            font-size: 22px;
+            font-weight: 700;
+            color: #e74c3c;
+        }
+
         @media (max-width: 968px) {
             .nav-links {
                 display: none;
@@ -652,9 +898,17 @@ if (password_verify($password, $user['password'])) {
             .modal-body {
                 padding: 25px 20px;
             }
+
+            .cart-dropdown {
+                width: calc(100vw - 30px);
+                right: -80px;
+            }
+            
+            .cart-dropdown::before {
+                right: 90px;
+            }
         }
 
-        /* Scrollbar Styling */
         .sidebar::-webkit-scrollbar {
             width: 6px;
         }
@@ -680,7 +934,6 @@ if (password_verify($password, $user['password'])) {
         </div>
     <?php endif; ?>
 
-    <!-- Top Navigation Bar -->
     <nav class="navbar">
         <div class="navbar-content">
             <button class="menu-toggle" id="menuToggle">
@@ -695,8 +948,8 @@ if (password_verify($password, $user['password'])) {
             </a>
 
             <ul class="nav-links">
-                <li><a href="#home">Home</a></li>
-                <li><a href="#collections">Collections</a></li>
+                <li><a href="/fashionhub/Customer/CustomerDashboard.php">Home</a></li>
+                <li><a href="/fashionhub/Customer/Products.php">Products</a></li>
                 <li><a href="#new-arrivals">New Arrivals</a></li>
                 <li><a href="#sale">Sale</a></li>
                 <li><a href="#about">About</a></li>
@@ -704,15 +957,90 @@ if (password_verify($password, $user['password'])) {
             </ul>
 
             <div class="nav-actions">
-                <button class="icon-button" title="Shopping Cart">
-                    <i class="fas fa-shopping-cart"></i>
-                    <span class="badge">2</span>
-                </button>
+                <div class="cart-dropdown-container">
+                    <button class="icon-button" id="cartToggle" title="Shopping Cart">
+                        <i class="fas fa-shopping-cart"></i>
+                        <?php if (isset($_SESSION['user_id']) && $cart_count > 0): ?>
+                            <span class="badge"><?php echo $cart_count; ?></span>
+                        <?php endif; ?>
+                    </button>
+                    
+                    <div class="cart-dropdown" id="cartDropdown">
+                        <div class="cart-dropdown-header">
+                            <h3>
+                                <i class="fas fa-shopping-bag"></i>
+                                Shopping Cart
+                                <?php if (isset($_SESSION['user_id']) && $cart_count > 0): ?>
+                                    <span class="cart-count-badge"><?php echo $cart_count; ?></span>
+                                <?php endif; ?>
+                            </h3>
+                            <button class="close-cart-dropdown" id="closeCartDropdown">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <div class="cart-dropdown-body">
+                            <?php if (isset($_SESSION['user_id'])): ?>
+                                <?php if (!empty($cart_items_array)): ?>
+                                    <?php foreach($cart_items_array as $item): ?>
+                                        <div class="cart-item">
+                                            <img src="data:image/jpeg;base64,<?php echo $item['product_photo']; ?>" 
+                                                 alt="<?php echo htmlspecialchars($item['product_name']); ?>" 
+                                                 class="cart-item-image">
+                                            <div class="cart-item-details">
+                                                <div class="cart-item-name">
+                                                    <?php echo htmlspecialchars($item['product_name']); ?>
+                                                </div>
+                                                <div class="cart-item-info">
+                                                    <span class="cart-item-quantity">Qty: <?php echo $item['quantity']; ?></span>
+                                                    <span class="cart-item-price">Rs. <?php echo number_format($item['total_price'], 2); ?></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <div class="cart-empty">
+                                        <i class="fas fa-shopping-cart"></i>
+                                        <p><strong>Your cart is empty</strong></p>
+                                        <p>Add some products to get started!</p>
+                                    </div>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <div class="cart-empty">
+                                    <i class="fas fa-sign-in-alt"></i>
+                                    <p><strong>Please login to view cart</strong></p>
+                                    <p>Login to add and view your cart items</p>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+
+                        <?php if (isset($_SESSION['user_id']) && $cart_count > 0): ?>
+                            <div class="cart-dropdown-footer">
+                                <div class="cart-subtotal">
+                                    <span class="cart-subtotal-label">Total:</span>
+                                    <span class="cart-subtotal-amount">Rs. <?php echo number_format($cart_total, 2); ?></span>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <?php if (isset($_SESSION['user_id'])): ?>
+                    <button class="icon-button" id="userMenuToggle" title="Account">
+                        <i class="fas fa-user"></i>
+                    </button>
+                <?php else: ?>
+                    <button class="icon-button" id="loginBtn" title="Login">
+                        <i class="fas fa-sign-in-alt"></i>
+                    </button>
+                    <button class="icon-button" id="signupBtn" title="Sign Up">
+                        <i class="fas fa-user-plus"></i>
+                    </button>
+                <?php endif; ?>
             </div>
         </div>
     </nav>
 
-    <!-- Login Modal -->
     <div class="modal" id="loginModal">
         <div class="modal-content">
             <div class="modal-header">
@@ -740,7 +1068,6 @@ if (password_verify($password, $user['password'])) {
         </div>
     </div>
 
-    <!-- Signup Modal -->
     <div class="modal" id="signupModal">
         <div class="modal-content">
             <div class="modal-header">
@@ -776,7 +1103,6 @@ if (password_verify($password, $user['password'])) {
         </div>
     </div>
 
-    <!-- Sidebar Navigation -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <h3>Welcome to FashionHub</h3>
@@ -823,141 +1149,194 @@ if (password_verify($password, $user['password'])) {
         </div>
     </aside>
 
-    <!-- Overlay -->
     <div class="overlay" id="overlay"></div>
 
     <script>
-        const menuToggle = document.getElementById('menuToggle');
-        const sidebar = document.getElementById('sidebar');
-        const overlay = document.getElementById('overlay');
-        const loginBtn = document.getElementById('loginBtn');
-        const signupBtn = document.getElementById('signupBtn');
-        const loginModal = document.getElementById('loginModal');
-        const signupModal = document.getElementById('signupModal');
-        const closeLogin = document.getElementById('closeLogin');
-        const closeSignup = document.getElementById('closeSignup');
-        const switchToSignup = document.getElementById('switchToSignup');
-        const switchToLogin = document.getElementById('switchToLogin');
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded - Initializing...');
+            
+            const menuToggle = document.getElementById('menuToggle');
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('overlay');
+            const loginBtn = document.getElementById('loginBtn');
+            const signupBtn = document.getElementById('signupBtn');
+            const loginModal = document.getElementById('loginModal');
+            const signupModal = document.getElementById('signupModal');
+            const closeLogin = document.getElementById('closeLogin');
+            const closeSignup = document.getElementById('closeSignup');
+            const switchToSignup = document.getElementById('switchToSignup');
+            const switchToLogin = document.getElementById('switchToLogin');
+            const cartToggle = document.getElementById('cartToggle');
+            const cartDropdown = document.getElementById('cartDropdown');
+            const closeCartDropdown = document.getElementById('closeCartDropdown');
 
-        // Auto-hide alert message after 5 seconds
-        const alertMessage = document.getElementById('alertMessage');
-        if (alertMessage) {
-            setTimeout(() => {
-                alertMessage.style.animation = 'slideUp 0.3s ease';
+            console.log('Cart Toggle:', cartToggle);
+            console.log('Cart Dropdown:', cartDropdown);
+
+            const alertMessage = document.getElementById('alertMessage');
+            if (alertMessage) {
                 setTimeout(() => {
-                    alertMessage.remove();
-                }, 300);
-            }, 5000);
-        }
-
-        // Toggle sidebar
-        menuToggle.addEventListener('click', function() {
-            this.classList.toggle('active');
-            sidebar.classList.toggle('active');
-            overlay.classList.toggle('active');
-        });
-
-        // Close sidebar when clicking overlay
-        overlay.addEventListener('click', function() {
-            menuToggle.classList.remove('active');
-            sidebar.classList.remove('active');
-            overlay.classList.remove('active');
-        });
-
-        // Close sidebar when clicking on a link
-        const sidebarLinks = document.querySelectorAll('.sidebar-menu a');
-        sidebarLinks.forEach(link => {
-            link.addEventListener('click', function() {
-                menuToggle.classList.remove('active');
-                sidebar.classList.remove('active');
-                overlay.classList.remove('active');
-            });
-        });
-
-        // Open Login Modal
-        loginBtn.addEventListener('click', function() {
-            loginModal.classList.add('active');
-        });
-
-        // Open Signup Modal
-        signupBtn.addEventListener('click', function() {
-            signupModal.classList.add('active');
-        });
-
-        // Close Login Modal
-        closeLogin.addEventListener('click', function() {
-            loginModal.classList.remove('active');
-        });
-
-        // Close Signup Modal
-        closeSignup.addEventListener('click', function() {
-            signupModal.classList.remove('active');
-        });
-
-        // Switch from Login to Signup
-        if (switchToSignup) {
-            switchToSignup.addEventListener('click', function() {
-                loginModal.classList.remove('active');
-                signupModal.classList.add('active');
-            });
-        }
-
-        // Switch from Signup to Login
-        if (switchToLogin) {
-            switchToLogin.addEventListener('click', function() {
-                signupModal.classList.remove('active');
-                loginModal.classList.add('active');
-            });
-        }
-
-        // Close modals when clicking outside
-        loginModal.addEventListener('click', function(e) {
-            if (e.target === loginModal) {
-                loginModal.classList.remove('active');
+                    alertMessage.style.animation = 'slideUp 0.3s ease';
+                    setTimeout(() => alertMessage.remove(), 300);
+                }, 5000);
             }
-        });
 
-        signupModal.addEventListener('click', function(e) {
-            if (e.target === signupModal) {
-                signupModal.classList.remove('active');
+            if (menuToggle) {
+                menuToggle.addEventListener('click', function() {
+                    this.classList.toggle('active');
+                    sidebar.classList.toggle('active');
+                    overlay.classList.toggle('active');
+                });
             }
-        });
 
-        // Newsletter form submission
-        const newsletterForm = document.querySelector('.newsletter-form');
-        newsletterForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const email = this.querySelector('input').value;
-            alert('Thank you for subscribing! We will send updates to: ' + email);
-            this.reset();
-        });
-
-        // Smooth scrolling for anchor links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function(e) {
-                e.preventDefault();
-                const target = document.querySelector(this.getAttribute('href'));
-                if (target) {
-                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-            });
-        });
-
-        // Close modals and sidebar on escape key
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                if (sidebar.classList.contains('active')) {
+            if (overlay) {
+                overlay.addEventListener('click', function() {
                     menuToggle.classList.remove('active');
                     sidebar.classList.remove('active');
                     overlay.classList.remove('active');
-                }
-                if (loginModal.classList.contains('active')) {
-                    loginModal.classList.remove('active');
-                }
-                if (signupModal.classList.contains('active')) {
-                    signupModal.classList.remove('active');
-                }
+                    if (cartDropdown) cartDropdown.classList.remove('show');
+                });
             }
+
+            document.querySelectorAll('.sidebar-menu a').forEach(link => {
+                link.addEventListener('click', function() {
+                    menuToggle.classList.remove('active');
+                    sidebar.classList.remove('active');
+                    overlay.classList.remove('active');
+                });
+            });
+
+            if (loginBtn) {
+                loginBtn.addEventListener('click', () => loginModal.classList.add('active'));
+            }
+
+            if (signupBtn) {
+                signupBtn.addEventListener('click', () => signupModal.classList.add('active'));
+            }
+
+            if (closeLogin) {
+                closeLogin.addEventListener('click', () => loginModal.classList.remove('active'));
+            }
+
+            if (closeSignup) {
+                closeSignup.addEventListener('click', () => signupModal.classList.remove('active'));
+            }
+
+            if (switchToSignup) {
+                switchToSignup.addEventListener('click', function() {
+                    loginModal.classList.remove('active');
+                    signupModal.classList.add('active');
+                });
+            }
+
+            if (switchToLogin) {
+                switchToLogin.addEventListener('click', function() {
+                    signupModal.classList.remove('active');
+                    loginModal.classList.add('active');
+                });
+            }
+
+            if (loginModal) {
+                loginModal.addEventListener('click', e => {
+                    if (e.target === loginModal) loginModal.classList.remove('active');
+                });
+            }
+
+            if (signupModal) {
+                signupModal.addEventListener('click', e => {
+                    if (e.target === signupModal) signupModal.classList.remove('active');
+                });
+            }
+
+            const newsletterForm = document.querySelector('.newsletter-form');
+            if (newsletterForm) {
+                newsletterForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    alert('Thank you for subscribing! We will send updates to: ' + this.querySelector('input').value);
+                    this.reset();
+                });
+            }
+
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const target = document.querySelector(this.getAttribute('href'));
+                    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            });
+
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    if (sidebar && sidebar.classList.contains('active')) {
+                        menuToggle.classList.remove('active');
+                        sidebar.classList.remove('active');
+                        overlay.classList.remove('active');
+                    }
+                    if (loginModal && loginModal.classList.contains('active')) {
+                        loginModal.classList.remove('active');
+                    }
+                    if (signupModal && signupModal.classList.contains('active')) {
+                        signupModal.classList.remove('active');
+                    }
+                    if (cartDropdown && cartDropdown.classList.contains('show')) {
+                        cartDropdown.classList.remove('show');
+                    }
+                }
+            });
+
+            // CART DROPDOWN - FIXED
+            if (cartToggle && cartDropdown) {
+                cartToggle.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    const isShowing = cartDropdown.classList.contains('show');
+                    console.log('Cart clicked! Current:', isShowing ? 'OPEN' : 'CLOSED');
+                    
+                    if (isShowing) {
+                        cartDropdown.classList.remove('show');
+                        console.log('Closing cart');
+                    } else {
+                        cartDropdown.classList.add('show');
+                        console.log('Opening cart');
+                    }
+                });
+                
+                console.log('Cart toggle listener attached!');
+            } else {
+                console.error('Cart elements missing!', { cartToggle, cartDropdown });
+            }
+
+            if (closeCartDropdown && cartDropdown) {
+                closeCartDropdown.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('Close cart clicked!');
+                    cartDropdown.classList.remove('show');
+                });
+                
+                console.log('Close cart button attached!');
+            }
+
+            document.addEventListener('click', function(e) {
+                if (cartDropdown && cartToggle) {
+                    if (!cartDropdown.contains(e.target) && !cartToggle.contains(e.target)) {
+                        if (cartDropdown.classList.contains('show')) {
+                            console.log('Clicked outside - closing cart');
+                            cartDropdown.classList.remove('show');
+                        }
+                    }
+                }
+            });
+
+            if (cartDropdown) {
+                cartDropdown.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    console.log('Clicked inside cart');
+                });
+            }
+
+            console.log('All event listeners initialized!');
         });
     </script>
 </body>

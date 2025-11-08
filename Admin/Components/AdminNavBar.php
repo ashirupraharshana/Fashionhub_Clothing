@@ -453,7 +453,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     <i class="fas fa-question-circle"></i>
                     <span class="menu-text">Help Center</span>
                 </a>
-                <a href="logout.php" class="menu-item <?php echo ($current_page == 'logout.php') ? 'active' : ''; ?>">
+                <a href="/fashionhub/Homepage.php" class="menu-item <?php echo ($current_page == 'logout.php') ? 'active' : ''; ?>">
                     <i class="fas fa-sign-out-alt"></i>
                     <span class="menu-text">Logout</span>
                 </a>
