@@ -85,7 +85,7 @@ $featured_products = $conn->query($featured_products_query);
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
             padding-top: 70px;
             min-height: 100vh;
             color: #2c3e50;
@@ -113,7 +113,7 @@ $featured_products = $conn->query($featured_products_query);
         }
 
         .sidebar-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             padding: 40px 30px;
             text-align: center;
             position: relative;
@@ -145,7 +145,7 @@ $featured_products = $conn->query($featured_products_query);
             align-items: center;
             justify-content: center;
             font-size: 42px;
-            color: #667eea;
+            color: #e74c3c;
             font-weight: 800;
             margin: 0 auto 20px;
             box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
@@ -205,13 +205,13 @@ $featured_products = $conn->query($featured_products_query);
             top: 0;
             width: 4px;
             height: 100%;
-            background: #667eea;
+            background: #e74c3c;
             transform: scaleY(0);
             transition: transform 0.3s;
         }
 
         .sidebar-menu a:hover {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+            background: linear-gradient(135deg, rgba(231, 76, 60, 0.1) 0%, rgba(192, 57, 43, 0.1) 100%);
             transform: translateX(5px);
         }
 
@@ -221,8 +221,8 @@ $featured_products = $conn->query($featured_products_query);
         }
 
         .sidebar-menu a.active {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
-            color: #667eea;
+            background: linear-gradient(135deg, rgba(231, 76, 60, 0.15) 0%, rgba(192, 57, 43, 0.15) 100%);
+            color: #e74c3c;
         }
 
         .sidebar-menu a i {
@@ -236,12 +236,12 @@ $featured_products = $conn->query($featured_products_query);
         }
 
         .welcome-section {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             border-radius: 24px;
             padding: 50px 45px;
             color: white;
             margin-bottom: 30px;
-            box-shadow: 0 15px 50px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 15px 50px rgba(231, 76, 60, 0.3);
             position: relative;
             overflow: hidden;
         }
@@ -297,7 +297,7 @@ $featured_products = $conn->query($featured_products_query);
             right: 0;
             width: 150px;
             height: 150px;
-            background: radial-gradient(circle, rgba(102, 126, 234, 0.05) 0%, transparent 70%);
+            background: radial-gradient(circle, rgba(231, 76, 60, 0.05) 0%, transparent 70%);
             border-radius: 50%;
             transform: translate(30%, -30%);
         }
@@ -322,15 +322,15 @@ $featured_products = $conn->query($featured_products_query);
         }
 
         .stat-icon.orders {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
         }
 
         .stat-icon.cart {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
         }
 
         .stat-icon.spent {
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
         }
 
         .stat-value {
@@ -368,14 +368,14 @@ $featured_products = $conn->query($featured_products_query);
         }
 
         .section-header h2 i {
-            color: #667eea;
+            color: #e74c3c;
         }
 
         .view-all-btn {
             padding: 12px 24px;
             background: white;
-            color: #667eea;
-            border: 2px solid #667eea;
+            color: #e74c3c;
+            border: 2px solid #e74c3c;
             border-radius: 12px;
             font-weight: 700;
             font-size: 14px;
@@ -384,10 +384,10 @@ $featured_products = $conn->query($featured_products_query);
         }
 
         .view-all-btn:hover {
-            background: #667eea;
+            background: #e74c3c;
             color: white;
             transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 8px 20px rgba(231, 76, 60, 0.3);
         }
 
         /* Recent Orders */
@@ -419,7 +419,7 @@ $featured_products = $conn->query($featured_products_query);
         .order-icon {
             width: 70px;
             height: 70px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             border-radius: 16px;
             display: flex;
             align-items: center;
@@ -457,7 +457,7 @@ $featured_products = $conn->query($featured_products_query);
         .order-price {
             font-size: 22px;
             font-weight: 800;
-            color: #667eea;
+            color: #e74c3c;
         }
 
         .empty-state {
@@ -500,6 +500,7 @@ $featured_products = $conn->query($featured_products_query);
             box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06);
             transition: all 0.4s;
             position: relative;
+            cursor: pointer;
         }
 
         .product-card-mini:hover {
@@ -533,13 +534,13 @@ $featured_products = $conn->query($featured_products_query);
             position: absolute;
             top: 12px;
             left: 12px;
-            background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%);
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             color: white;
             padding: 8px 14px;
             border-radius: 10px;
             font-size: 12px;
             font-weight: 800;
-            box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
         }
 
         .product-info-mini {
@@ -549,7 +550,7 @@ $featured_products = $conn->query($featured_products_query);
         .product-category-mini {
             font-size: 11px;
             text-transform: uppercase;
-            color: #667eea;
+            color: #e74c3c;
             letter-spacing: 1.2px;
             margin-bottom: 8px;
             font-weight: 700;
@@ -568,7 +569,7 @@ $featured_products = $conn->query($featured_products_query);
         .product-price-mini {
             font-size: 22px;
             font-weight: 900;
-            color: #667eea;
+            color: #e74c3c;
         }
 
         .product-original-price-mini {
