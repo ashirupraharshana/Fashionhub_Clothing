@@ -1029,6 +1029,9 @@ if (isset($_SESSION['user_id'])) {
                 <li><a href="/fashionhub/Customer/Feedback.php">Feedbacks</a></li>
                 <li><a href="/fashionhub/Customer/AboutUs.php">About</a></li>
                 <li><a href="/fashionhub/Customer/ContactUs.php">Contact</a></li>
+                <li><button class="icon-button" id="profileButton" title="Profile">
+  <i class="fas fa-user-circle"></i>
+</button></li>
             </ul>
 
             <div class="nav-actions">
@@ -1205,6 +1208,9 @@ if (isset($_SESSION['user_id'])) {
                 <li><a href="/fashionhub/Customer/Feedback.php">Feedbacks</a></li>
                 <li><a href="/fashionhub/Customer/AboutUs.php">About</a></li>
                 <li><a href="/fashionhub/Customer/ContactUs.php">Contact</a></li>
+                <li><a href="/fashionhub/Customer/Profile.php">
+    <i class="fas fa-user-cog"></i>Profile Settings
+</a></li>
                 <li><a href="/fashionhub/logout.php" onclick="return confirm('Are you sure you want to logout?');">
     <i class="fas fa-sign-out-alt"></i>LogOut
 </a></li>
@@ -1550,6 +1556,13 @@ if (isset($_SESSION['user_id'])) {
             };
             return text.replace(/[&<>"']/g, m => map[m]);
         }
+        
+const profileButton = document.getElementById('profileButton');
+if (profileButton) {
+    profileButton.addEventListener('click', function() {
+        window.location.href = '/fashionhub/Customer/Profile.php';
+    });
+}
 
       
 const logoutButton = document.getElementById('logoutButton');
