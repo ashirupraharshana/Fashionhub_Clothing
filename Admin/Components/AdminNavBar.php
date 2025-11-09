@@ -423,7 +423,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     <span class="menu-text">Feedbacks</span>
                 </a>
 
-                <a href="customers.php" class="menu-item <?php echo ($current_page == 'customers.php') ? 'active' : ''; ?>">
+                <a href="/fashionhub/Admin/ManageUsers.php" class="menu-item <?php echo ($current_page == 'customers.php') ? 'active' : ''; ?>">
                     <i class="fas fa-users"></i>
                     <span class="menu-text">Customers</span>
                 </a>

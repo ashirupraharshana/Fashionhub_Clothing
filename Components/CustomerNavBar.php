@@ -751,11 +751,9 @@ if (password_verify($password, $user['password'])) {
 
             <ul class="nav-links">
                 <li><a href="#home">Home</a></li>
-                <li><a href="#collections">Collections</a></li>
-                <li><a href="#new-arrivals">New Arrivals</a></li>
-                <li><a href="#sale">Sale</a></li>
-                <li><a href="#about">About</a></li>
-                <li><a href="#contact">Contact</a></li>
+                <li><a href="/fashionhub/Collections.php">Collections</a></li>
+                <li><a href="/fashionhub/AboutUs.php">About</a></li>
+                <li><a href="/fashionhub/ContactUs.php">Sale</a></li>
             </ul>
 
             <div class="nav-actions">
@@ -849,8 +847,8 @@ if (password_verify($password, $user['password'])) {
         </div>
 
         <ul class="sidebar-menu">
-            <li><a href="#home"><i class="fas fa-home"></i> Home</a></li>
-            <li><a href="#collections"><i class="fas fa-th-large"></i> Collections</a></li>
+            <li><a href="/fashionhub/Homepage.php"><i class="fas fa-home"></i> Home</a></li>
+            <li><a href="/fashionhub/Collections.php"><i class="fas fa-th-large"></i> Collections</a></li>
             <li><a href="#men"><i class="fas fa-male"></i> Men's Fashion</a></li>
             <li><a href="#women"><i class="fas fa-female"></i> Women's Fashion</a></li>
             <li><a href="#accessories"><i class="fas fa-gem"></i> Accessories</a></li>
