@@ -545,7 +545,7 @@ if (isset($_SESSION['user_id'])) {
         .sidebar-header {
             padding: 30px 25px;
             border-bottom: 2px solid #f0f0f0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #ff4e50 0%, #e74c3c 100%);
             color: white;
         }
 
@@ -1113,10 +1113,11 @@ if (isset($_SESSION['user_id'])) {
                     </div>
                 </div>
 
-                <?php if (isset($_SESSION['user_id'])): ?>
-                    <button class="icon-button" id="userMenuToggle" title="Account">
-                        <i class="fas fa-user"></i>
-                    </button>
+<?php if (isset($_SESSION['user_id'])): ?>
+<button class="icon-button" id="logoutButton" title="Logout">
+    <i class="fas fa-sign-out-alt"></i>
+</button>
+
                 <?php else: ?>
                     <button class="icon-button" id="loginBtn" title="Login">
                         <i class="fas fa-sign-in-alt"></i>
@@ -1198,26 +1199,16 @@ if (isset($_SESSION['user_id'])) {
         </div>
 
         <ul class="sidebar-menu">
-            <li><a href="#home"><i class="fas fa-home"></i> Home</a></li>
-            <li><a href="#collections"><i class="fas fa-th-large"></i> Collections</a></li>
-            <li><a href="#men"><i class="fas fa-male"></i> Men's Fashion</a></li>
-            <li><a href="#women"><i class="fas fa-female"></i> Women's Fashion</a></li>
-            <li><a href="#accessories"><i class="fas fa-gem"></i> Accessories</a></li>
-            <li><a href="#new-arrivals"><i class="fas fa-star"></i> New Arrivals</a></li>
-            <li><a href="#sale"><i class="fas fa-tags"></i> Sale</a></li>
-            <li><a href="#about"><i class="fas fa-info-circle"></i> About Us</a></li>
-            <li><a href="#contact"><i class="fas fa-envelope"></i> Contact</a></li>
-            <li><a href="#feedback"><i class="fas fa-comment-dots"></i> Feedback</a></li>
+             <li><a href="/fashionhub/Customer/CustomerDashboard.php">Home</a></li>
+                <li><a href="/fashionhub/Customer/Products.php">Products</a></li>
+                <li><a href="/fashionhub/Customer/CustomerOrders.php">My Orders</a></li>
+                <li><a href="/fashionhub/Customer/Feedback.php">Feedbacks</a></li>
+                <li><a href="/fashionhub/Customer/AboutUs.php">About</a></li>
+                <li><a href="/fashionhub/Customer/ContactUs.php">Contact</a></li>
+                <li><a href="/fashionhub/logout.php" onclick="return confirm('Are you sure you want to logout?');">
+    <i class="fas fa-sign-out-alt"></i>LogOut
+</a></li>
         </ul>
-
-        <div class="sidebar-section">
-            <h4>Newsletter</h4>
-            <form class="newsletter-form">
-                <input type="email" placeholder="Enter your email" required>
-                <button type="submit">Subscribe</button>
-            </form>
-        </div>
-
         <div class="sidebar-section">
             <h4>Follow Us</h4>
             <div class="social-links">
@@ -1559,6 +1550,16 @@ if (isset($_SESSION['user_id'])) {
             };
             return text.replace(/[&<>"']/g, m => map[m]);
         }
+
+      
+const logoutButton = document.getElementById('logoutButton');
+if (logoutButton) {
+    logoutButton.addEventListener('click', function() {
+        if (confirm('Are you sure you want to logout?')) {
+            window.location.href = '/fashionhub/logout.php';
+        }
+    });
+}
     </script>
 </body>
 </html>
