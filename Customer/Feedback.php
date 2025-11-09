@@ -15,7 +15,7 @@ if ($conn->connect_error) {
 
 $user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : NULL;
 
-// Handle Feedback Deletion - MUST BE BEFORE ANY OUTPUT
+// Handle Feedback Deletion
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_feedback'])) {
     if (!isset($_SESSION['user_id'])) {
         $_SESSION['message'] = "You must be logged in to delete feedback!";
@@ -24,7 +24,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_feedback'])) {
         $feedback_id = intval($_POST['feedback_id']);
         $current_user_id = $_SESSION['user_id'];
         
-        // Verify that the feedback belongs to the logged-in user
         $check_query = "SELECT user_id FROM feedback WHERE id = ?";
         $stmt = $conn->prepare($check_query);
         $stmt->bind_param("i", $feedback_id);
@@ -35,7 +34,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_feedback'])) {
             $feedback_data = $check_result->fetch_assoc();
             
             if ($feedback_data['user_id'] == $current_user_id) {
-                // User owns this feedback, allow deletion
                 $delete_query = "DELETE FROM feedback WHERE id = ? AND user_id = ?";
                 $stmt = $conn->prepare($delete_query);
                 $stmt->bind_param("ii", $feedback_id, $current_user_id);
@@ -62,14 +60,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_feedback'])) {
     exit;
 }
 
-// Handle Feedback Submission - MUST BE BEFORE ANY OUTPUT
+// Handle Feedback Submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_feedback'])) {
     $user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : NULL;
     $name = $conn->real_escape_string(trim($_POST['name']));
     $email = $conn->real_escape_string(trim($_POST['email']));
     $message = $conn->real_escape_string(trim($_POST['message']));
     
-    // Validation
     if (empty($name) || empty($email) || empty($message)) {
         $_SESSION['message'] = "All fields are required!";
         $_SESSION['message_type'] = "error";
@@ -77,7 +74,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_feedback'])) {
         $_SESSION['message'] = "Please enter a valid email address!";
         $_SESSION['message_type'] = "error";
     } else {
-        // Insert feedback
         if ($user_id) {
             $sql = "INSERT INTO feedback (user_id, name, email, message) VALUES (?, ?, ?, ?)";
             $stmt = $conn->prepare($sql);
@@ -102,23 +98,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_feedback'])) {
     exit;
 }
 
-// Include navbar AFTER handling POST requests
 if (isset($_SESSION['user_id'])) {
     include 'Components/CustomerNavBar.php';
 }
 
-// Fetch all feedbacks with user information (ordered by newest first)
+// Fetch all feedbacks
 $feedback_query = "SELECT f.*, u.fullname 
                    FROM feedback f 
                    LEFT JOIN users u ON f.user_id = u.id 
                    ORDER BY f.submitted_at DESC";
 $feedback_result = $conn->query($feedback_query);
 
-// Get feedback statistics
+// Get statistics
 $stats_query = "SELECT 
     COUNT(*) as total_feedbacks,
     COUNT(DISTINCT user_id) as unique_users,
-    COUNT(CASE WHEN submitted_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 END) as recent_feedbacks
+    COUNT(CASE WHEN submitted_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 END) as recent_feedbacks,
+    COUNT(CASE WHEN admin_reply IS NOT NULL THEN 1 END) as replied_feedbacks
     FROM feedback";
 $stats_result = $conn->query($stats_query);
 $stats = $stats_result->fetch_assoc();
@@ -145,8 +141,11 @@ if (isset($_SESSION['user_id'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Feedback | FashionHub</title>
+    <title>Customer Feedback | FashionHub</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -156,9 +155,9 @@ if (isset($_SESSION['user_id'])) {
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-            min-height: 100vh;
+            background: #f8f9fa;
             color: #2c3e50;
+            line-height: 1.6;
             <?php if (isset($_SESSION['user_id'])): ?>
             padding-top: 70px;
             <?php endif; ?>
@@ -167,145 +166,206 @@ if (isset($_SESSION['user_id'])) {
         .page-container {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 60px 20px;
+            padding: 40px 20px;
         }
 
         /* Hero Section */
         .hero-section {
-            text-align: center;
-            margin-bottom: 60px;
-            color: white;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            padding: 60px 40px;
+            border-radius: 16px;
+            margin-bottom: 40px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 300px;
+            height: 300px;
+            background: #e74c3c;
+            opacity: 0.1;
+            border-radius: 50%;
+            transform: translate(30%, -30%);
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
         }
 
         .hero-section h1 {
-            font-size: 56px;
+            font-size: 48px;
             font-weight: 800;
-            margin-bottom: 15px;
-            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            color: #ffffff;
+            margin-bottom: 16px;
+            letter-spacing: -1px;
         }
 
         .hero-section p {
-            font-size: 20px;
-            opacity: 0.95;
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.8);
             max-width: 600px;
-            margin: 0 auto;
+            font-weight: 400;
+        }
+
+        .hero-highlight {
+            color: #e74c3c;
         }
 
         /* Alert Messages */
         .alert {
-            padding: 18px 24px;
+            padding: 16px 24px;
             border-radius: 12px;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
             display: flex;
             align-items: center;
-            gap: 15px;
-            font-weight: 600;
-            animation: slideDown 0.4s ease;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            gap: 12px;
+            font-weight: 500;
+            animation: slideInRight 0.5s ease;
+            position: fixed;
+            top: 90px;
+            right: 20px;
+            z-index: 1000;
+            max-width: 450px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
         }
 
         .alert.success {
-            background: white;
+            background: #ffffff;
             color: #27ae60;
-            border-left: 5px solid #27ae60;
+            border-left: 4px solid #27ae60;
         }
 
         .alert.error {
-            background: white;
+            background: #ffffff;
             color: #e74c3c;
-            border-left: 5px solid #e74c3c;
+            border-left: 4px solid #e74c3c;
         }
 
         .alert i {
-            font-size: 24px;
+            font-size: 20px;
         }
 
-        @keyframes slideDown {
+        .alert-close {
+            margin-left: auto;
+            background: transparent;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+        }
+
+        .alert-close:hover {
+            opacity: 1;
+        }
+
+        @keyframes slideInRight {
             from {
                 opacity: 0;
-                transform: translateY(-30px);
+                transform: translateX(100px);
             }
             to {
                 opacity: 1;
-                transform: translateY(0);
+                transform: translateX(0);
             }
         }
 
-        /* Statistics Cards */
+        @keyframes slideOutRight {
+            from {
+                opacity: 1;
+                transform: translateX(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateX(100px);
+            }
+        }
+
+        /* Statistics Grid */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 30px;
-            margin-bottom: 50px;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
         }
 
         .stat-card {
-            background: white;
-            padding: 35px;
-            border-radius: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-            text-align: center;
-            transition: all 0.4s ease;
-            border: 2px solid transparent;
+            background: #ffffff;
+            padding: 32px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            transition: all 0.3s ease;
+            border: 1px solid #e8e8e8;
         }
 
         .stat-card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
             border-color: #e74c3c;
         }
 
         .stat-icon {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
+            width: 56px;
+            height: 56px;
+            border-radius: 12px;
             background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 36px;
+            font-size: 24px;
             color: white;
-            margin: 0 auto 20px;
-            box-shadow: 0 8px 20px rgba(231, 76, 60, 0.3);
+            margin-bottom: 20px;
+            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
         }
 
         .stat-card h3 {
-            font-size: 42px;
+            font-size: 36px;
             font-weight: 800;
             color: #2c3e50;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }
 
         .stat-card p {
-            font-size: 16px;
+            font-size: 14px;
             color: #7f8c8d;
             font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
-        /* Main Content Grid */
+        /* Content Grid */
         .content-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 40px;
-            margin-bottom: 60px;
+            gap: 32px;
+            margin-bottom: 50px;
         }
 
         /* Feedback Form */
         .feedback-form-container {
-            background: white;
-            padding: 45px;
-            border-radius: 20px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            background: #ffffff;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            border: 1px solid #e8e8e8;
         }
 
         .form-header {
-            margin-bottom: 35px;
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 2px solid #f0f0f0;
         }
 
         .form-header h2 {
-            font-size: 32px;
+            font-size: 28px;
             color: #2c3e50;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             font-weight: 800;
         }
 
@@ -315,87 +375,97 @@ if (isset($_SESSION['user_id'])) {
         }
 
         .form-group {
-            margin-bottom: 25px;
+            margin-bottom: 24px;
         }
 
         .form-group label {
             display: block;
-            font-weight: 700;
+            font-weight: 600;
             color: #2c3e50;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+        }
+
+        .form-group label i {
+            color: #e74c3c;
+            margin-right: 6px;
+            width: 16px;
         }
 
         .form-group input,
         .form-group textarea {
             width: 100%;
-            padding: 16px 20px;
+            padding: 14px 16px;
             border: 2px solid #e8e8e8;
-            border-radius: 12px;
+            border-radius: 8px;
             font-size: 15px;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
             font-family: inherit;
-            background: #f8f9fa;
+            background: #ffffff;
         }
 
         .form-group input:focus,
         .form-group textarea:focus {
             outline: none;
             border-color: #e74c3c;
-            box-shadow: 0 0 0 4px rgba(231, 76, 60, 0.1);
-            background: white;
+            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
         }
 
         .form-group textarea {
-            min-height: 180px;
+            min-height: 160px;
             resize: vertical;
         }
 
         .submit-btn {
             width: 100%;
-            padding: 18px;
+            padding: 16px;
             background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             color: white;
             border: none;
-            border-radius: 12px;
-            font-size: 16px;
+            border-radius: 8px;
+            font-size: 15px;
             font-weight: 700;
             cursor: pointer;
             transition: all 0.3s ease;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            box-shadow: 0 8px 20px rgba(231, 76, 60, 0.3);
+            letter-spacing: 0.5px;
+            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
         }
 
         .submit-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 30px rgba(231, 76, 60, 0.4);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(231, 76, 60, 0.4);
         }
 
         .submit-btn:active {
-            transform: translateY(-1px);
+            transform: translateY(0);
         }
 
         /* Recent Feedbacks */
         .recent-feedbacks-container {
-            background: white;
-            padding: 45px;
-            border-radius: 20px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            background: #ffffff;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
             max-height: 750px;
             overflow-y: auto;
+            border: 1px solid #e8e8e8;
         }
 
         .recent-feedbacks-container h2 {
-            font-size: 32px;
+            font-size: 28px;
             color: #2c3e50;
-            margin-bottom: 30px;
+            margin-bottom: 24px;
             font-weight: 800;
             display: flex;
             align-items: center;
             gap: 12px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
         }
 
         .recent-feedbacks-container h2 i {
@@ -404,25 +474,26 @@ if (isset($_SESSION['user_id'])) {
 
         .feedback-item {
             background: #f8f9fa;
-            padding: 25px;
-            border-radius: 16px;
-            margin-bottom: 20px;
-            border-left: 5px solid #e74c3c;
+            padding: 24px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+            border: 1px solid #e8e8e8;
             transition: all 0.3s ease;
         }
 
         .feedback-item:hover {
-            transform: translateX(5px);
-            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+            background: #ffffff;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            border-color: #e74c3c;
         }
 
         .feedback-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
+            align-items: flex-start;
+            margin-bottom: 16px;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 12px;
         }
 
         .feedback-user {
@@ -432,9 +503,9 @@ if (isset($_SESSION['user_id'])) {
         }
 
         .user-avatar {
-            width: 45px;
-            height: 45px;
-            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
             background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             display: flex;
             align-items: center;
@@ -442,6 +513,7 @@ if (isset($_SESSION['user_id'])) {
             color: white;
             font-weight: 700;
             font-size: 18px;
+            box-shadow: 0 2px 8px rgba(231, 76, 60, 0.3);
         }
 
         .user-info {
@@ -452,7 +524,7 @@ if (isset($_SESSION['user_id'])) {
         .user-name {
             font-weight: 700;
             color: #2c3e50;
-            font-size: 16px;
+            font-size: 15px;
         }
 
         .user-email {
@@ -471,27 +543,56 @@ if (isset($_SESSION['user_id'])) {
         .feedback-message {
             color: #2c3e50;
             line-height: 1.7;
-            font-size: 15px;
-            margin-bottom: 15px;
+            font-size: 14px;
+            margin-bottom: 12px;
+            padding: 16px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e8e8e8;
+        }
+
+        .admin-reply {
+            background: #fff9f8;
+            padding: 16px;
+            border-radius: 8px;
+            margin-top: 12px;
+            border-left: 3px solid #e74c3c;
+        }
+
+        .admin-reply-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #e74c3c;
+            font-weight: 700;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        .admin-reply-message {
+            color: #2c3e50;
+            line-height: 1.6;
+            font-size: 14px;
         }
 
         .feedback-actions {
             display: flex;
             justify-content: flex-end;
-            padding-top: 15px;
+            padding-top: 12px;
             border-top: 1px solid #e8e8e8;
+            margin-top: 12px;
         }
 
         .delete-feedback-btn {
-            padding: 8px 18px;
+            padding: 8px 16px;
             background: transparent;
             color: #e74c3c;
             border: 2px solid #e74c3c;
-            border-radius: 8px;
+            border-radius: 6px;
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
             display: flex;
             align-items: center;
             gap: 6px;
@@ -500,8 +601,7 @@ if (isset($_SESSION['user_id'])) {
         .delete-feedback-btn:hover {
             background: #e74c3c;
             color: white;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+            transform: translateY(-1px);
         }
 
         .empty-state {
@@ -511,35 +611,38 @@ if (isset($_SESSION['user_id'])) {
         }
 
         .empty-state i {
-            font-size: 64px;
-            margin-bottom: 20px;
-            opacity: 0.5;
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.4;
         }
 
         .empty-state p {
-            font-size: 16px;
+            font-size: 15px;
         }
 
         /* All Feedbacks Section */
         .all-feedbacks-section {
-            background: white;
-            padding: 50px;
-            border-radius: 20px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            background: #ffffff;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            border: 1px solid #e8e8e8;
         }
 
         .all-feedbacks-section h2 {
-            font-size: 36px;
+            font-size: 32px;
             color: #2c3e50;
-            margin-bottom: 40px;
+            margin-bottom: 32px;
             font-weight: 800;
             text-align: center;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
         }
 
         .feedbacks-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-            gap: 30px;
+            gap: 24px;
         }
 
         /* Scrollbar Styling */
@@ -561,7 +664,37 @@ if (isset($_SESSION['user_id'])) {
             background: #c0392b;
         }
 
-        /* Responsive */
+        /* Back to Top Button */
+        .back-to-top {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 18px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
+            transition: all 0.3s ease;
+            z-index: 999;
+        }
+
+        .back-to-top.show {
+            display: flex;
+        }
+
+        .back-to-top:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 6px 20px rgba(231, 76, 60, 0.5);
+        }
+
+        /* Responsive Design */
         @media (max-width: 1024px) {
             .content-grid {
                 grid-template-columns: 1fr;
@@ -573,8 +706,16 @@ if (isset($_SESSION['user_id'])) {
         }
 
         @media (max-width: 768px) {
+            body {
+                padding-top: 60px;
+            }
+
+            .hero-section {
+                padding: 40px 24px;
+            }
+
             .hero-section h1 {
-                font-size: 38px;
+                font-size: 32px;
             }
 
             .hero-section p {
@@ -583,12 +724,13 @@ if (isset($_SESSION['user_id'])) {
 
             .stats-grid {
                 grid-template-columns: 1fr;
+                gap: 16px;
             }
 
             .feedback-form-container,
             .recent-feedbacks-container,
             .all-feedbacks-section {
-                padding: 30px 25px;
+                padding: 24px;
             }
 
             .feedbacks-grid {
@@ -600,52 +742,30 @@ if (isset($_SESSION['user_id'])) {
             .all-feedbacks-section h2 {
                 font-size: 24px;
             }
-        }
 
-        /* Back to Top Button */
-        .back-to-top {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            width: 55px;
-            height: 55px;
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-            color: white;
-            border: none;
-            border-radius: 50%;
-            cursor: pointer;
-            font-size: 20px;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 8px 20px rgba(231, 76, 60, 0.4);
-            transition: all 0.3s ease;
-            z-index: 1000;
-        }
-
-        .back-to-top.show {
-            display: flex;
-        }
-
-        .back-to-top:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 12px 30px rgba(231, 76, 60, 0.5);
+            .alert {
+                top: 70px;
+                right: 10px;
+                left: 10px;
+                max-width: none;
+            }
         }
     </style>
 </head>
 <body>
     <div class="page-container">
-        <!-- Hero Section -->
         <div class="hero-section">
-            <h1>We Value Your Feedback</h1>
-            <p>Help us improve by sharing your thoughts and experiences with FashionHub</p>
+            <div class="hero-content">
+                <h1>Customer <span class="hero-highlight">Feedback</span></h1>
+                <p>Your feedback helps us improve our services and provide you with the best fashion experience possible.</p>
+            </div>
         </div>
 
-        <!-- Alert Messages -->
         <?php if (isset($_SESSION['message'])): ?>
             <div class="alert <?php echo $_SESSION['message_type']; ?>">
                 <i class="fas fa-<?php echo $_SESSION['message_type'] == 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i>
                 <span><?php echo $_SESSION['message']; ?></span>
+                <button class="alert-close">&times;</button>
             </div>
             <?php 
                 unset($_SESSION['message']);
@@ -653,7 +773,6 @@ if (isset($_SESSION['user_id'])) {
             ?>
         <?php endif; ?>
 
-        <!-- Statistics Cards -->
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-icon">
@@ -678,38 +797,44 @@ if (isset($_SESSION['user_id'])) {
                 <h3><?php echo $stats['recent_feedbacks']; ?></h3>
                 <p>This Week</p>
             </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-reply-all"></i>
+                </div>
+                <h3><?php echo $stats['replied_feedbacks']; ?></h3>
+                <p>Admin Replies</p>
+            </div>
         </div>
 
-        <!-- Main Content Grid -->
         <div class="content-grid">
-            <!-- Feedback Form -->
             <div class="feedback-form-container">
                 <div class="form-header">
                     <h2>Share Your Feedback</h2>
-                    <p>Your opinion matters to us. Let us know what you think!</p>
+                    <p>We value your opinion and would love to hear from you</p>
                 </div>
 
                 <form method="POST" action="Feedback.php">
                     <input type="hidden" name="submit_feedback" value="1">
                     
                     <div class="form-group">
-                        <label for="name">Your Name *</label>
+                        <label for="name"><i class="fas fa-user"></i> Full Name *</label>
                         <input type="text" id="name" name="name" required 
                                placeholder="Enter your full name"
                                value="<?php echo htmlspecialchars($prefill_name); ?>">
                     </div>
 
                     <div class="form-group">
-                        <label for="email">Email Address *</label>
+                        <label for="email"><i class="fas fa-envelope"></i> Email Address *</label>
                         <input type="email" id="email" name="email" required 
                                placeholder="your.email@example.com"
                                value="<?php echo htmlspecialchars($prefill_email); ?>">
                     </div>
 
                     <div class="form-group">
-                        <label for="message">Your Message *</label>
+                        <label for="message"><i class="fas fa-comment-dots"></i> Your Message *</label>
                         <textarea id="message" name="message" required 
-                                  placeholder="Tell us about your experience with FashionHub..."></textarea>
+                                  placeholder="Share your thoughts, suggestions, or concerns..."></textarea>
                     </div>
 
                     <button type="submit" class="submit-btn">
@@ -718,7 +843,6 @@ if (isset($_SESSION['user_id'])) {
                 </form>
             </div>
 
-            <!-- Recent Feedbacks -->
             <div class="recent-feedbacks-container">
                 <h2><i class="fas fa-star"></i> Recent Feedbacks</h2>
                 
@@ -726,9 +850,9 @@ if (isset($_SESSION['user_id'])) {
                     <?php 
                     $count = 0;
                     $current_user = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
-                    $feedback_result->data_seek(0); // Reset pointer
+                    $feedback_result->data_seek(0);
                     while ($feedback = $feedback_result->fetch_assoc()): 
-                        if ($count >= 5) break; // Show only 5 in this section
+                        if ($count >= 5) break;
                         $count++;
                     ?>
                         <div class="feedback-item">
@@ -750,6 +874,24 @@ if (isset($_SESSION['user_id'])) {
                             <div class="feedback-message">
                                 <?php echo nl2br(htmlspecialchars($feedback['message'])); ?>
                             </div>
+                            
+                            <?php if (!empty($feedback['admin_reply'])): ?>
+                                <div class="admin-reply">
+                                    <div class="admin-reply-header">
+                                        <i class="fas fa-reply"></i>
+                                        <span>Admin Response</span>
+                                        <?php if (!empty($feedback['replied_at'])): ?>
+                                            <span style="margin-left: auto; font-weight: normal; font-size: 12px;">
+                                                <?php echo date('M d, Y', strtotime($feedback['replied_at'])); ?>
+                                            </span>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="admin-reply-message">
+                                        <?php echo nl2br(htmlspecialchars($feedback['admin_reply'])); ?>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                            
                             <?php if ($current_user && $feedback['user_id'] == $current_user): ?>
                                 <div class="feedback-actions">
                                     <form method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this feedback?')">
@@ -773,7 +915,6 @@ if (isset($_SESSION['user_id'])) {
             </div>
         </div>
 
-        <!-- All Feedbacks Section -->
         <?php if ($feedback_result->num_rows > 5): ?>
         <div class="all-feedbacks-section">
             <h2>All Customer Feedbacks</h2>
@@ -781,7 +922,7 @@ if (isset($_SESSION['user_id'])) {
             <div class="feedbacks-grid">
                 <?php 
                 $current_user = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
-                $feedback_result->data_seek(5); // Start from 6th feedback
+                $feedback_result->data_seek(5);
                 while ($feedback = $feedback_result->fetch_assoc()): 
                 ?>
                     <div class="feedback-item">
@@ -803,6 +944,24 @@ if (isset($_SESSION['user_id'])) {
                         <div class="feedback-message">
                             <?php echo nl2br(htmlspecialchars($feedback['message'])); ?>
                         </div>
+                        
+                        <?php if (!empty($feedback['admin_reply'])): ?>
+                            <div class="admin-reply">
+                                <div class="admin-reply-header">
+                                    <i class="fas fa-reply"></i>
+                                    <span>Admin Response</span>
+                                    <?php if (!empty($feedback['replied_at'])): ?>
+                                        <span style="margin-left: auto; font-weight: normal; font-size: 12px;">
+                                            <?php echo date('M d, Y', strtotime($feedback['replied_at'])); ?>
+                                        </span>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="admin-reply-message">
+                                    <?php echo nl2br(htmlspecialchars($feedback['admin_reply'])); ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                        
                         <?php if ($current_user && $feedback['user_id'] == $current_user): ?>
                             <div class="feedback-actions">
                                 <form method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this feedback?')">
@@ -822,43 +981,108 @@ if (isset($_SESSION['user_id'])) {
         <?php endif; ?>
     </div>
 
-    <!-- Back to Top Button -->
     <button class="back-to-top" id="backToTop">
         <i class="fas fa-arrow-up"></i>
     </button>
 
     <script>
-        // Back to Top Button
-        const backToTop = document.getElementById('backToTop');
+        (function() {
+            'use strict';
+            
+            // Back to Top Button
+            const backToTop = document.getElementById('backToTop');
 
-        window.addEventListener('scroll', () => {
-            if (window.pageYOffset > 300) {
-                backToTop.classList.add('show');
-            } else {
-                backToTop.classList.remove('show');
-            }
-        });
-
-        backToTop.addEventListener('click', () => {
-            window.scrollTo({
-                top: 0,
-                behavior: 'smooth'
+            window.addEventListener('scroll', function() {
+                if (window.pageYOffset > 300) {
+                    backToTop.classList.add('show');
+                } else {
+                    backToTop.classList.remove('show');
+                }
             });
-        });
 
-        // Auto-hide alert after 5 seconds
-        const alert = document.querySelector('.alert');
-        if (alert) {
-            setTimeout(() => {
-                alert.style.opacity = '0';
-                alert.style.transform = 'translateY(-20px)';
-                setTimeout(() => {
-                    alert.style.display = 'none';
-                }, 300);
-            }, 5000);
-        }
+            backToTop.addEventListener('click', function() {
+                window.scrollTo({
+                    top: 0,
+                    behavior: 'smooth'
+                });
+            });
+
+            // Auto-hide alert after 5 seconds
+            const alert = document.querySelector('.alert');
+            if (alert) {
+                const alertClose = alert.querySelector('.alert-close');
+                
+                // Close button functionality
+                if (alertClose) {
+                    alertClose.addEventListener('click', function() {
+                        alert.style.animation = 'slideOutRight 0.5s ease';
+                        setTimeout(function() {
+                            alert.remove();
+                        }, 500);
+                    });
+                }
+                
+                // Auto-hide after 5 seconds
+                setTimeout(function() {
+                    if (alert && alert.parentElement) {
+                        alert.style.animation = 'slideOutRight 0.5s ease';
+                        setTimeout(function() {
+                            if (alert && alert.parentElement) {
+                                alert.remove();
+                            }
+                        }, 500);
+                    }
+                }, 5000);
+            }
+
+            // Form validation enhancement
+            const feedbackForm = document.querySelector('form[action="Feedback.php"]');
+            if (feedbackForm) {
+                feedbackForm.addEventListener('submit', function(e) {
+                    const name = document.getElementById('name').value.trim();
+                    const email = document.getElementById('email').value.trim();
+                    const message = document.getElementById('message').value.trim();
+                    
+                    if (!name || !email || !message) {
+                        e.preventDefault();
+                        alert('Please fill in all required fields.');
+                        return false;
+                    }
+                    
+                    // Email validation
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    if (!emailRegex.test(email)) {
+                        e.preventDefault();
+                        alert('Please enter a valid email address.');
+                        return false;
+                    }
+                    
+                    // Show loading state
+                    const submitBtn = feedbackForm.querySelector('.submit-btn');
+                    if (submitBtn) {
+                        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+                        submitBtn.disabled = true;
+                    }
+                });
+            }
+
+            // Smooth scroll for better UX
+            document.querySelectorAll('a[href^="#"]').forEach(function(anchor) {
+                anchor.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const target = document.querySelector(this.getAttribute('href'));
+                    if (target) {
+                        target.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start'
+                        });
+                    }
+                });
+            });
+
+        })();
     </script>
-      <?php include 'Components/Footer.php'; ?>
+    <?php include 'Components/Footer.php'; ?>
 </body>
 </html>
 
