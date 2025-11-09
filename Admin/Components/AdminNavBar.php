@@ -384,6 +384,19 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 padding: 20px 15px;
             }
         }
+
+@media (min-width: 769px) {
+    .menu-toggle-btn {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .menu-toggle-btn {
+        display: block;
+    }
+}
+
     </style>
 </head>
 <body>
@@ -406,7 +419,6 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 <a href="ManageProducts.php" class="menu-item <?php echo ($current_page == 'products.php') ? 'active' : ''; ?>">
                     <i class="fas fa-tshirt"></i>
                     <span class="menu-text">Products</span>
-                    <span class="menu-badge">245</span>
                 </a>
                 <a href="ManageCategory.php" class="menu-item <?php echo ($current_page == 'categories.php') ? 'active' : ''; ?>">
                     <i class="fas fa-tags"></i>
@@ -415,7 +427,6 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 <a href="/fashionhub/Admin/ManageOrders.php" class="menu-item <?php echo ($current_page == 'orders.php') ? 'active' : ''; ?>">
                     <i class="fas fa-shopping-cart"></i>
                     <span class="menu-text">Orders</span>
-                    <span class="menu-badge">12</span>
                 </a>
 
                 <a href="/fashionhub/Admin/ManageFeedbacks.php" class="menu-item <?php echo ($current_page == 'orders.php') ? 'active' : ''; ?>">
@@ -426,26 +437,6 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 <a href="/fashionhub/Admin/ManageUsers.php" class="menu-item <?php echo ($current_page == 'customers.php') ? 'active' : ''; ?>">
                     <i class="fas fa-users"></i>
                     <span class="menu-text">Customers</span>
-                </a>
-            </div>
-
-            <div class="menu-section">
-                <div class="menu-title">Management</div>
-                <a href="inventory.php" class="menu-item <?php echo ($current_page == 'inventory.php') ? 'active' : ''; ?>">
-                    <i class="fas fa-boxes"></i>
-                    <span class="menu-text">Inventory</span>
-                </a>
-                <a href="reports.php" class="menu-item <?php echo ($current_page == 'reports.php') ? 'active' : ''; ?>">
-                    <i class="fas fa-chart-line"></i>
-                    <span class="menu-text">Reports</span>
-                </a>
-                <a href="promotions.php" class="menu-item <?php echo ($current_page == 'promotions.php') ? 'active' : ''; ?>">
-                    <i class="fas fa-percent"></i>
-                    <span class="menu-text">Promotions</span>
-                </a>
-                <a href="reviews.php" class="menu-item <?php echo ($current_page == 'reviews.php') ? 'active' : ''; ?>">
-                    <i class="fas fa-star"></i>
-                    <span class="menu-text">Reviews</span>
                 </a>
             </div>
 
@@ -474,10 +465,6 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 <button class="menu-toggle-btn" id="menuToggle">
                     <i class="fas fa-bars"></i>
                 </button>
-                <div class="search-bar">
-                    <input type="text" placeholder="Search products, orders, customers...">
-                    <i class="fas fa-search"></i>
-                </div>
             </div>
 
             <div class="navbar-right">
@@ -504,37 +491,27 @@ $current_page = basename($_SERVER['PHP_SELF']);
     <!-- Overlay for mobile -->
     <div class="overlay" id="overlay"></div>
 
-    <script>
-        const menuToggle = document.getElementById('menuToggle');
-        const sidebar = document.getElementById('sidebar');
-        const mainContent = document.getElementById('mainContent');
-        const navbarContainer = document.getElementById('navbarContainer');
-        const overlay = document.getElementById('overlay');
+   <script>
+    const menuToggle = document.getElementById('menuToggle');
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('overlay');
 
-        menuToggle.addEventListener('click', function() {
-            if (window.innerWidth > 768) {
-                sidebar.classList.toggle('collapsed');
-                if (mainContent) mainContent.classList.toggle('expanded');
-                navbarContainer.classList.toggle('expanded');
-            } else {
-                sidebar.classList.toggle('mobile-active');
-                overlay.classList.toggle('active');
-            }
-        });
+    // Toggle only for mobile view
+    menuToggle.addEventListener('click', function () {
+        sidebar.classList.toggle('mobile-active');
+        overlay.classList.toggle('active');
+    });
 
-        overlay.addEventListener('click', function() {
+    overlay.addEventListener('click', function () {
+        sidebar.classList.remove('mobile-active');
+        overlay.classList.remove('active');
+    });
+
+    // Ensure sidebar resets properly on resize
+    window.addEventListener('resize', function () {
+        if (window.innerWidth > 768) {
             sidebar.classList.remove('mobile-active');
             overlay.classList.remove('active');
-        });
-
-        window.addEventListener('resize', function() {
-            if (window.innerWidth > 768) {
-                sidebar.classList.remove('mobile-active');
-                overlay.classList.remove('active');
-            } else {
-                sidebar.classList.remove('collapsed');
-                if (mainContent) mainContent.classList.remove('expanded');
-                navbarContainer.classList.remove('expanded');
-            }
-        });
-    </script>
+        }
+    });
+</script>

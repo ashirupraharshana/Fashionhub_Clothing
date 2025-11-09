@@ -996,9 +996,9 @@ $result = $conn->query($query);
                             <?php endif; ?>
                             
                             <div class="product-price-section">
-                                <div class="product-price">$<?php echo number_format($final_price, 2); ?></div>
+                                <div class="product-price">Rs.<?php echo number_format($final_price, 2); ?></div>
                                 <?php if ($row['discount'] > 0): ?>
-                                    <div class="product-original-price">$<?php echo number_format($row['price'], 2); ?></div>
+                                    <div class="product-original-price">Rs.<?php echo number_format($row['price'], 2); ?></div>
                                 <?php endif; ?>
                             </div>
                             

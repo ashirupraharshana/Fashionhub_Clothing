@@ -750,16 +750,16 @@ if (password_verify($password, $user['password'])) {
             </a>
 
             <ul class="nav-links">
-                <li><a href="#home">Home</a></li>
+                <li><a href="Homepage.php">Home</a></li>
                 <li><a href="/fashionhub/Collections.php">Collections</a></li>
                 <li><a href="/fashionhub/AboutUs.php">About</a></li>
-                <li><a href="/fashionhub/ContactUs.php">Sale</a></li>
+                <li><a href="/fashionhub/ContactUs.php">Contact</a></li>
             </ul>
 
             <div class="nav-actions">
                 <button class="icon-button" title="Shopping Cart">
                     <i class="fas fa-shopping-cart"></i>
-                    <span class="badge">2</span>
+                    <span class="badge">?</span>
                 </button>
                 <div class="auth-buttons">
                     <button class="btn-login" id="loginBtn">
