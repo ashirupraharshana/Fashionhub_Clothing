@@ -67,6 +67,12 @@ $featured_products_query = "SELECT p.*, c.category_name,
                             ORDER BY p.id DESC 
                             LIMIT 4";
 $featured_products = $conn->query($featured_products_query);
+
+// ===== ADD YOUR IMAGE URLS HERE =====
+$hero_background = "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=1920"; 
+$user_avatar = "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200"; 
+$banner_decoration = "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800";
+$empty_orders_image = "https://images.unsplash.com/photo-1607083206968-13611e3d76db?w=400";
 ?>
 
 <!DOCTYPE html>
@@ -85,7 +91,7 @@ $featured_products = $conn->query($featured_products_query);
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
+            background: linear-gradient(135deg, #fef5f5 0%, #fdeef0 100%);
             padding-top: 70px;
             min-height: 100vh;
             color: #2c3e50;
@@ -99,13 +105,13 @@ $featured_products = $conn->query($featured_products_query);
             gap: 30px;
         }
 
-        /* Sidebar */
+        /* Sidebar with Photo */
         .sidebar {
-            width: 300px;
+            width: 320px;
             background: white;
-            border-radius: 20px;
+            border-radius: 24px;
             padding: 0;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 15px 50px rgba(0, 0, 0, 0.08);
             height: fit-content;
             position: sticky;
             top: 100px;
@@ -113,8 +119,12 @@ $featured_products = $conn->query($featured_products_query);
         }
 
         .sidebar-header {
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-            padding: 40px 30px;
+            background: linear-gradient(135deg, rgba(231, 76, 60, 0.95) 0%, rgba(192, 57, 43, 0.95) 100%),
+                        url('<?php echo $banner_decoration; ?>');
+            background-size: cover;
+            background-position: center;
+            background-blend-mode: multiply;
+            padding: 45px 30px;
             text-align: center;
             position: relative;
             overflow: hidden;
@@ -123,77 +133,81 @@ $featured_products = $conn->query($featured_products_query);
         .sidebar-header::before {
             content: '';
             position: absolute;
-            top: -50%;
-            right: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-            animation: rotate 20s linear infinite;
-        }
-
-        @keyframes rotate {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at top right, rgba(255,255,255,0.15) 0%, transparent 60%);
         }
 
         .user-avatar {
-            width: 100px;
-            height: 100px;
+            width: 110px;
+            height: 110px;
             border-radius: 50%;
             background: white;
             display: flex;
             align-items: center;
             justify-content: center;
+            margin: 0 auto 20px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+            border: 6px solid rgba(255, 255, 255, 0.4);
+            position: relative;
+            z-index: 1;
+            overflow: hidden;
+            background-image: url('<?php echo $user_avatar; ?>');
+            background-size: cover;
+            background-position: center;
+        }
+
+        .user-avatar-fallback {
             font-size: 42px;
             color: #e74c3c;
             font-weight: 800;
-            margin: 0 auto 20px;
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
-            border: 5px solid rgba(255, 255, 255, 0.3);
-            position: relative;
-            z-index: 1;
         }
 
         .user-welcome {
-            font-size: 22px;
+            font-size: 24px;
             font-weight: 800;
             color: white;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
             position: relative;
             z-index: 1;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
         }
 
         .user-role {
             font-size: 14px;
-            color: rgba(255, 255, 255, 0.9);
-            background: rgba(255, 255, 255, 0.2);
-            padding: 6px 16px;
+            color: rgba(255, 255, 255, 0.95);
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(10px);
+            padding: 8px 18px;
             border-radius: 20px;
             display: inline-block;
             position: relative;
             z-index: 1;
+            font-weight: 600;
         }
 
         .sidebar-menu {
             list-style: none;
-            padding: 25px 15px;
+            padding: 30px 20px;
         }
 
         .sidebar-menu li {
-            margin-bottom: 8px;
+            margin-bottom: 10px;
         }
 
         .sidebar-menu a {
             display: flex;
             align-items: center;
             gap: 15px;
-            padding: 15px 20px;
+            padding: 16px 22px;
             color: #2c3e50;
             text-decoration: none;
             font-weight: 600;
             font-size: 15px;
-            transition: all 0.3s;
-            border-radius: 12px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 14px;
             position: relative;
             overflow: hidden;
         }
@@ -203,16 +217,16 @@ $featured_products = $conn->query($featured_products_query);
             position: absolute;
             left: 0;
             top: 0;
-            width: 4px;
+            width: 5px;
             height: 100%;
-            background: #e74c3c;
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             transform: scaleY(0);
             transition: transform 0.3s;
         }
 
         .sidebar-menu a:hover {
-            background: linear-gradient(135deg, rgba(231, 76, 60, 0.1) 0%, rgba(192, 57, 43, 0.1) 100%);
-            transform: translateX(5px);
+            background: linear-gradient(135deg, rgba(231, 76, 60, 0.12) 0%, rgba(192, 57, 43, 0.12) 100%);
+            transform: translateX(8px);
         }
 
         .sidebar-menu a:hover::before,
@@ -221,12 +235,12 @@ $featured_products = $conn->query($featured_products_query);
         }
 
         .sidebar-menu a.active {
-            background: linear-gradient(135deg, rgba(231, 76, 60, 0.15) 0%, rgba(192, 57, 43, 0.15) 100%);
+            background: linear-gradient(135deg, rgba(231, 76, 60, 0.18) 0%, rgba(192, 57, 43, 0.18) 100%);
             color: #e74c3c;
         }
 
         .sidebar-menu a i {
-            width: 22px;
+            width: 24px;
             font-size: 20px;
         }
 
@@ -235,13 +249,18 @@ $featured_products = $conn->query($featured_products_query);
             flex: 1;
         }
 
+        /* Hero Welcome Section with Photo */
         .welcome-section {
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-            border-radius: 24px;
-            padding: 50px 45px;
+            background: linear-gradient(135deg, rgba(231, 76, 60, 0.97) 0%, rgba(192, 57, 43, 0.97) 100%),
+                        url('<?php echo $hero_background; ?>');
+            background-size: cover;
+            background-position: center;
+            background-blend-mode: multiply;
+            border-radius: 28px;
+            padding: 60px 50px;
             color: white;
-            margin-bottom: 30px;
-            box-shadow: 0 15px 50px rgba(231, 76, 60, 0.3);
+            margin-bottom: 35px;
+            box-shadow: 0 20px 60px rgba(231, 76, 60, 0.35);
             position: relative;
             overflow: hidden;
         }
@@ -251,43 +270,60 @@ $featured_products = $conn->query($featured_products_query);
             position: absolute;
             top: -50%;
             right: -20%;
-            width: 500px;
-            height: 500px;
-            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(255,255,255,0.12) 0%, transparent 65%);
             border-radius: 50%;
         }
 
-        .welcome-section h1 {
-            font-size: 42px;
-            font-weight: 900;
-            margin-bottom: 12px;
+        .welcome-section::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 100px;
+            background: linear-gradient(to top, rgba(0,0,0,0.1), transparent);
+        }
+
+        .welcome-content {
             position: relative;
             z-index: 1;
+        }
+
+        .welcome-section h1 {
+            font-size: 48px;
+            font-weight: 900;
+            margin-bottom: 15px;
+            text-shadow: 0 3px 15px rgba(0,0,0,0.2);
+            letter-spacing: -0.5px;
         }
 
         .welcome-section p {
-            font-size: 18px;
-            opacity: 0.95;
-            position: relative;
-            z-index: 1;
+            font-size: 19px;
+            opacity: 0.96;
+            max-width: 600px;
+            line-height: 1.6;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.15);
         }
 
-        /* Stats Cards */
+        /* Stats Cards with Icons */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 25px;
-            margin-bottom: 35px;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 28px;
+            margin-bottom: 40px;
         }
 
         .stat-card {
             background: white;
-            border-radius: 20px;
-            padding: 35px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-            transition: all 0.4s;
+            border-radius: 22px;
+            padding: 38px;
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.07);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
             overflow: hidden;
+            border: 1px solid rgba(231, 76, 60, 0.08);
         }
 
         .stat-card::before {
@@ -295,30 +331,32 @@ $featured_products = $conn->query($featured_products_query);
             position: absolute;
             top: 0;
             right: 0;
-            width: 150px;
-            height: 150px;
-            background: radial-gradient(circle, rgba(231, 76, 60, 0.05) 0%, transparent 70%);
+            width: 180px;
+            height: 180px;
+            background: radial-gradient(circle, rgba(231, 76, 60, 0.06) 0%, transparent 70%);
             border-radius: 50%;
-            transform: translate(30%, -30%);
+            transform: translate(35%, -35%);
         }
 
         .stat-card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+            transform: translateY(-12px);
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.15);
+            border-color: rgba(231, 76, 60, 0.2);
         }
 
         .stat-icon {
-            width: 70px;
-            height: 70px;
-            border-radius: 18px;
+            width: 75px;
+            height: 75px;
+            border-radius: 20px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 30px;
+            font-size: 32px;
             color: white;
-            margin-bottom: 20px;
+            margin-bottom: 22px;
             position: relative;
             z-index: 1;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
         }
 
         .stat-icon.orders {
@@ -326,20 +364,21 @@ $featured_products = $conn->query($featured_products_query);
         }
 
         .stat-icon.cart {
-            background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
         }
 
         .stat-icon.spent {
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
         }
 
         .stat-value {
-            font-size: 42px;
+            font-size: 44px;
             font-weight: 900;
             color: #2c3e50;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
             position: relative;
             z-index: 1;
+            letter-spacing: -1px;
         }
 
         .stat-label {
@@ -348,6 +387,8 @@ $featured_products = $conn->query($featured_products_query);
             font-weight: 600;
             position: relative;
             z-index: 1;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         /* Section Headers */
@@ -355,78 +396,92 @@ $featured_products = $conn->query($featured_products_query);
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 25px;
+            margin-bottom: 28px;
         }
 
         .section-header h2 {
-            font-size: 26px;
+            font-size: 28px;
             font-weight: 800;
             color: #2c3e50;
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 14px;
         }
 
         .section-header h2 i {
             color: #e74c3c;
+            font-size: 26px;
         }
 
         .view-all-btn {
-            padding: 12px 24px;
+            padding: 13px 28px;
             background: white;
             color: #e74c3c;
             border: 2px solid #e74c3c;
-            border-radius: 12px;
+            border-radius: 14px;
             font-weight: 700;
             font-size: 14px;
             text-decoration: none;
-            transition: all 0.3s;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .view-all-btn:hover {
             background: #e74c3c;
             color: white;
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(231, 76, 60, 0.3);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(231, 76, 60, 0.35);
         }
 
-        /* Recent Orders */
+        /* Recent Orders with Product Images */
         .orders-section {
-            margin-bottom: 35px;
+            margin-bottom: 40px;
         }
 
         .orders-grid {
             display: grid;
-            gap: 20px;
+            gap: 22px;
         }
 
         .order-card {
             background: white;
-            border-radius: 18px;
-            padding: 25px;
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06);
+            border-radius: 20px;
+            padding: 28px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
             display: flex;
             align-items: center;
-            gap: 25px;
-            transition: all 0.3s;
+            gap: 28px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid rgba(231, 76, 60, 0.06);
         }
 
         .order-card:hover {
-            transform: translateX(8px);
-            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.12);
+            transform: translateX(10px);
+            box-shadow: 0 15px 45px rgba(0, 0, 0, 0.12);
+            border-color: rgba(231, 76, 60, 0.15);
         }
 
-        .order-icon {
-            width: 70px;
-            height: 70px;
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-            border-radius: 16px;
+        .order-image {
+            width: 90px;
+            height: 90px;
+            border-radius: 18px;
+            overflow: hidden;
+            flex-shrink: 0;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+            background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-size: 28px;
-            flex-shrink: 0;
+        }
+
+        .order-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .order-icon {
+            font-size: 32px;
+            color: #e74c3c;
         }
 
         .order-details {
@@ -436,81 +491,131 @@ $featured_products = $conn->query($featured_products_query);
         .order-id {
             font-size: 12px;
             color: #7f8c8d;
-            font-weight: 600;
-            margin-bottom: 6px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
 
         .order-product {
-            font-size: 17px;
+            font-size: 18px;
             font-weight: 700;
             color: #2c3e50;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
+            line-height: 1.4;
         }
 
         .order-meta {
             display: flex;
-            gap: 15px;
+            gap: 20px;
             font-size: 13px;
             color: #7f8c8d;
+            font-weight: 600;
+        }
+
+        .order-meta i {
+            color: #e74c3c;
+            margin-right: 4px;
         }
 
         .order-price {
-            font-size: 22px;
-            font-weight: 800;
+            font-size: 24px;
+            font-weight: 900;
             color: #e74c3c;
+            letter-spacing: -0.5px;
         }
 
+        /* Empty State with Image */
         .empty-state {
             background: white;
-            border-radius: 18px;
-            padding: 60px 40px;
+            border-radius: 22px;
+            padding: 70px 40px;
             text-align: center;
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+            border: 2px dashed rgba(231, 76, 60, 0.2);
+        }
+
+        .empty-state-image {
+            width: 200px;
+            height: 200px;
+            margin: 0 auto 25px;
+            border-radius: 50%;
+            overflow: hidden;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .empty-state-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.8;
         }
 
         .empty-state i {
-            font-size: 70px;
+            font-size: 80px;
             color: #e8e8e8;
-            margin-bottom: 20px;
         }
 
         .empty-state h3 {
-            font-size: 24px;
+            font-size: 26px;
             color: #2c3e50;
-            margin-bottom: 10px;
-            font-weight: 700;
+            margin-bottom: 12px;
+            font-weight: 800;
         }
 
         .empty-state p {
             color: #7f8c8d;
-            font-size: 15px;
+            font-size: 16px;
+            margin-bottom: 25px;
         }
 
-        /* Featured Products */
+        .empty-state-btn {
+            display: inline-block;
+            padding: 14px 32px;
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 14px;
+            font-weight: 700;
+            transition: all 0.3s;
+            box-shadow: 0 8px 25px rgba(231, 76, 60, 0.3);
+        }
+
+        .empty-state-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 35px rgba(231, 76, 60, 0.4);
+        }
+
+        /* Featured Products with Photos */
         .products-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 25px;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 28px;
         }
 
         .product-card-mini {
             background: white;
-            border-radius: 20px;
+            border-radius: 24px;
             overflow: hidden;
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06);
-            transition: all 0.4s;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
             cursor: pointer;
+            border: 1px solid rgba(231, 76, 60, 0.06);
         }
 
         .product-card-mini:hover {
-            transform: translateY(-12px) scale(1.02);
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+            transform: translateY(-15px);
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.15);
+            border-color: rgba(231, 76, 60, 0.15);
         }
 
         .product-image-mini {
             width: 100%;
-            height: 200px;
+            height: 250px;
             overflow: hidden;
             background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
             display: flex;
@@ -523,60 +628,63 @@ $featured_products = $conn->query($featured_products_query);
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transition: all 0.6s;
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .product-card-mini:hover .product-image-mini img {
-            transform: scale(1.15) rotate(2deg);
+            transform: scale(1.12);
         }
 
         .discount-badge-mini {
             position: absolute;
-            top: 12px;
-            left: 12px;
+            top: 15px;
+            left: 15px;
             background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             color: white;
-            padding: 8px 14px;
-            border-radius: 10px;
-            font-size: 12px;
+            padding: 10px 16px;
+            border-radius: 12px;
+            font-size: 13px;
             font-weight: 800;
-            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
+            box-shadow: 0 6px 20px rgba(231, 76, 60, 0.4);
+            z-index: 10;
         }
 
         .product-info-mini {
-            padding: 22px;
+            padding: 26px;
         }
 
         .product-category-mini {
             font-size: 11px;
             text-transform: uppercase;
             color: #e74c3c;
-            letter-spacing: 1.2px;
-            margin-bottom: 8px;
-            font-weight: 700;
+            letter-spacing: 1.5px;
+            margin-bottom: 10px;
+            font-weight: 800;
         }
 
         .product-name-mini {
-            font-size: 16px;
+            font-size: 17px;
             font-weight: 700;
             color: #2c3e50;
-            margin-bottom: 12px;
-            line-height: 1.4;
-            height: 44px;
+            margin-bottom: 14px;
+            line-height: 1.5;
+            height: 51px;
             overflow: hidden;
         }
 
         .product-price-mini {
-            font-size: 22px;
+            font-size: 24px;
             font-weight: 900;
             color: #e74c3c;
+            letter-spacing: -0.5px;
         }
 
         .product-original-price-mini {
-            font-size: 14px;
+            font-size: 15px;
             color: #95a5a6;
             text-decoration: line-through;
-            margin-left: 8px;
+            margin-left: 10px;
+            font-weight: 600;
         }
 
         /* Responsive */
@@ -591,29 +699,28 @@ $featured_products = $conn->query($featured_products_query);
             }
 
             .sidebar-header {
-                padding: 35px 30px;
+                padding: 40px 30px;
             }
 
             .user-avatar {
-                width: 80px;
-                height: 80px;
-                font-size: 36px;
+                width: 90px;
+                height: 90px;
             }
 
             .sidebar-menu {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 10px;
+                gap: 12px;
             }
         }
 
         @media (max-width: 768px) {
             .welcome-section {
-                padding: 35px 30px;
+                padding: 40px 30px;
             }
 
             .welcome-section h1 {
-                font-size: 32px;
+                font-size: 36px;
             }
 
             .stats-grid {
@@ -628,6 +735,11 @@ $featured_products = $conn->query($featured_products_query);
                 flex-direction: column;
                 text-align: center;
             }
+
+            .order-image {
+                width: 120px;
+                height: 120px;
+            }
         }
     </style>
 </head>
@@ -639,7 +751,10 @@ $featured_products = $conn->query($featured_products_query);
         <aside class="sidebar">
             <div class="sidebar-header">
                 <div class="user-avatar">
-                    <?php echo strtoupper(substr($user['fullname'], 0, 1)); ?>
+                    <!-- If user avatar image doesn't load, show initial -->
+                    <span class="user-avatar-fallback" style="display: none;">
+                        <?php echo strtoupper(substr($user['fullname'], 0, 1)); ?>
+                    </span>
                 </div>
                 <div class="user-welcome">Welcome Back!</div>
                 <div class="user-role"><?php echo htmlspecialchars($user['fullname']); ?></div>
@@ -659,8 +774,10 @@ $featured_products = $conn->query($featured_products_query);
         <main class="main-content">
             <!-- Welcome Section -->
             <div class="welcome-section">
-                <h1>Hello, <?php echo htmlspecialchars(explode(' ', $user['fullname'])[0]); ?>! 👋</h1>
-                <p>Discover the latest fashion trends and manage your orders seamlessly</p>
+                <div class="welcome-content">
+                    <h1>Hello, <?php echo htmlspecialchars(explode(' ', $user['fullname'])[0]); ?>! </h1>
+                    <p>Discover the latest fashion trends and manage your orders seamlessly. Welcome to your personalized shopping dashboard!</p>
+                </div>
             </div>
 
             <!-- Statistics Cards -->
@@ -695,7 +812,7 @@ $featured_products = $conn->query($featured_products_query);
                 <div class="section-header">
                     <h2><i class="fas fa-history"></i> Recent Orders</h2>
                     <?php if ($recent_orders->num_rows > 0): ?>
-                        <a href="Orders.php" class="view-all-btn">View All</a>
+                        <a href="CustomerOrders.php" class="view-all-btn">View All Orders</a>
                     <?php endif; ?>
                 </div>
 
@@ -703,8 +820,13 @@ $featured_products = $conn->query($featured_products_query);
                     <?php if ($recent_orders->num_rows > 0): ?>
                         <?php while($order = $recent_orders->fetch_assoc()): ?>
                             <div class="order-card">
-                                <div class="order-icon">
-                                    <i class="fas fa-shopping-bag"></i>
+                                <div class="order-image">
+                                    <?php if (!empty($order['product_photo'])): ?>
+                                        <img src="data:image/jpeg;base64,<?php echo $order['product_photo']; ?>" 
+                                             alt="<?php echo htmlspecialchars($order['product_name']); ?>">
+                                    <?php else: ?>
+                                        <i class="order-icon fas fa-shopping-bag"></i>
+                                    <?php endif; ?>
                                 </div>
                                 <div class="order-details">
                                     <div class="order-id">Order #<?php echo $order['id']; ?></div>
@@ -723,9 +845,14 @@ $featured_products = $conn->query($featured_products_query);
                         <?php endwhile; ?>
                     <?php else: ?>
                         <div class="empty-state">
-                            <i class="fas fa-box-open"></i>
+                            <div class="empty-state-image">
+                                <img src="<?php echo $empty_orders_image; ?>" alt="No orders">
+                            </div>
                             <h3>No Orders Yet</h3>
                             <p>Start shopping to see your orders here!</p>
+                            <a href="Products.php" class="empty-state-btn">
+                                <i class="fas fa-shopping-bag"></i> Browse Products
+                            </a>
                         </div>
                     <?php endif; ?>
                 </div>
@@ -734,7 +861,7 @@ $featured_products = $conn->query($featured_products_query);
             <!-- Featured Products Section -->
             <div class="section-header">
                 <h2><i class="fas fa-star"></i> Latest Arrivals</h2>
-                <a href="Products.php" class="view-all-btn">Browse All</a>
+                <a href="Products.php" class="view-all-btn">Browse All Products</a>
             </div>
 
             <div class="products-grid">
@@ -750,7 +877,7 @@ $featured_products = $conn->query($featured_products_query);
                                     <img src="data:image/jpeg;base64,<?php echo $product['product_photo']; ?>" 
                                          alt="<?php echo htmlspecialchars($product['product_name']); ?>">
                                 <?php else: ?>
-                                    <i class="fas fa-box" style="font-size: 50px; color: #e8e8e8;"></i>
+                                    <i class="fas fa-tshirt" style="font-size: 60px; color: #e8e8e8;"></i>
                                 <?php endif; ?>
                             </div>
                             
@@ -770,5 +897,25 @@ $featured_products = $conn->query($featured_products_query);
             </div>
         </main>
     </div>
+
+    <script>
+        // Handle user avatar fallback
+        document.addEventListener('DOMContentLoaded', function() {
+            const userAvatar = document.querySelector('.user-avatar');
+            const fallback = document.querySelector('.user-avatar-fallback');
+            
+            // Check if background image loaded
+            const img = new Image();
+            img.src = '<?php echo $user_avatar; ?>';
+            img.onerror = function() {
+                userAvatar.style.backgroundImage = 'none';
+                userAvatar.style.background = 'white';
+                if (fallback) {
+                    fallback.style.display = 'block';
+                }
+            };
+        });
+    </script>
+      <?php include 'Components/Footer.php'; ?>
 </body>
 </html>

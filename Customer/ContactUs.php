@@ -1070,6 +1070,7 @@ $prefill_phone = $user_data['phone'] ?? "";
             });
         }
     </script>
+      <?php include 'Components/Footer.php'; ?>
 </body>
 </html>
 

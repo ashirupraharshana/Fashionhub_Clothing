@@ -861,6 +861,7 @@ if ($is_logged_in) {
             });
         });
     </script>
+      <?php include 'Components/Footer.php'; ?>
 </body>
 </html>
 

@@ -1007,5 +1007,6 @@ $status_labels = [
             }
         });
     </script>
+      <?php include 'Components/Footer.php'; ?>
 </body>
 </html>

@@ -858,6 +858,7 @@ if (isset($_SESSION['user_id'])) {
             }, 5000);
         }
     </script>
+      <?php include 'Components/Footer.php'; ?>
 </body>
 </html>
 

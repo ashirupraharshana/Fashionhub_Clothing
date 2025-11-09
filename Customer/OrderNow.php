@@ -719,5 +719,6 @@ include 'Components/CustomerNavBar.php';
         // Initialize buttons state
         updateButtons();
     </script>
+      <?php include 'Components/Footer.php'; ?>
 </body>
 </html>

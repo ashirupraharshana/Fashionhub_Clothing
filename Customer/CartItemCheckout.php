@@ -33,7 +33,7 @@ $user_result = $stmt->get_result();
 $user_data = $user_result->fetch_assoc();
 $stmt->close();
 
-// FIXED: Fetch cart items with calculated total_price
+// Fetch cart items with calculated total_price
 $cart_query = "SELECT c.id, c.product_id, c.quantity, c.price, 
                (c.price * c.quantity) as total_price,
                p.product_name, p.product_photo 
@@ -47,10 +47,10 @@ $stmt->execute();
 $cart_result = $stmt->get_result();
 
 $cart_items = [];
-$subtotal = 0;
+$total = 0;
 while ($row = $cart_result->fetch_assoc()) {
     $cart_items[] = $row;
-    $subtotal += $row['total_price'];  // Now this exists because we calculated it in the query
+    $total += $row['total_price'];
 }
 $stmt->close();
 
@@ -59,12 +59,6 @@ if (empty($cart_items)) {
     header("Location: /fashionhub/Customer/CustomerDashboard.php");
     exit;
 }
-
-// Calculate totals
-$shipping = 250.00; // Fixed shipping cost
-$tax_rate = 0.08; // 8% tax
-$tax = $subtotal * $tax_rate;
-$total = $subtotal + $shipping + $tax;
 
 // Handle form submission
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
@@ -107,7 +101,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             
             // If all stock validations pass, proceed with orders
             foreach ($cart_items as $item) {
-                // Calculate total_price for this order (redundant but explicit)
+                // Calculate total_price for this order
                 $item_total = $item['price'] * $item['quantity'];
                 
                 $order_sql = "INSERT INTO orders (user_id, product_id, quantity, price, total_price, delivery_address, phone, status) 
@@ -133,7 +127,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                 }
                 $stmt->close();
                 
-                // Update product stock - with additional safety check
+                // Update product stock
                 $update_stock_sql = "UPDATE products 
                                     SET stock_quantity = stock_quantity - ? 
                                     WHERE id = ? 
@@ -150,7 +144,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                     throw new Exception("Stock update failed: " . $stmt->error);
                 }
                 
-                // Check if the update actually affected any rows
                 if ($stmt->affected_rows === 0) {
                     throw new Exception("Stock update failed - insufficient stock for " . 
                                       htmlspecialchars($item['product_name']));
@@ -186,7 +179,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             // Rollback transaction on error
             $conn->rollback();
             $error = "Failed to place orders: " . $e->getMessage();
-            // Log the error for debugging
             error_log("Checkout Error: " . $e->getMessage());
         }
     }
@@ -209,7 +201,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f8f9fa;
+            background: linear-gradient(135deg, #fef5f5 0%, #fdeef0 100%);
             padding-top: 70px;
             min-height: 100vh;
             color: #2c3e50;
@@ -217,7 +209,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
 
         .navbar {
             background: #fff;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
             position: fixed;
             top: 0;
             left: 0;
@@ -238,144 +230,156 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         }
 
         .logo {
-            font-size: 26px;
-            font-weight: bold;
+            font-size: 28px;
+            font-weight: 800;
             color: #e74c3c;
             text-decoration: none;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
         }
 
         .logo i {
-            font-size: 30px;
+            font-size: 32px;
         }
 
         .back-btn {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            padding: 12px 24px;
+            gap: 10px;
+            padding: 13px 26px;
             background: #2c3e50;
             color: white;
             text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
+            border-radius: 10px;
+            font-weight: 700;
             transition: all 0.3s;
+            font-size: 14px;
         }
 
         .back-btn:hover {
             background: #1a252f;
             transform: translateX(-5px);
+            box-shadow: 0 6px 20px rgba(44, 62, 80, 0.3);
         }
 
         .checkout-container {
-            max-width: 1200px;
+            max-width: 1300px;
             margin: 40px auto;
             padding: 0 20px;
         }
 
         .checkout-header {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 45px;
         }
 
         .checkout-header h1 {
-            font-size: 42px;
+            font-size: 48px;
             color: #2c3e50;
-            margin-bottom: 10px;
-            font-weight: 700;
+            margin-bottom: 12px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
         }
 
         .checkout-header p {
-            font-size: 16px;
+            font-size: 17px;
             color: #7f8c8d;
         }
 
         .alert {
-            padding: 16px 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
+            padding: 18px 24px;
+            border-radius: 12px;
+            margin-bottom: 25px;
             display: flex;
             align-items: center;
-            gap: 12px;
-            font-weight: 600;
+            gap: 14px;
+            font-weight: 700;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
         }
 
         .alert-success {
-            background: #d4edda;
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
             color: #155724;
-            border: 2px solid #c3e6cb;
+            border-left: 5px solid #27ae60;
         }
 
         .alert-error {
-            background: #f8d7da;
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
             color: #721c24;
-            border: 2px solid #f5c6cb;
+            border-left: 5px solid #e74c3c;
         }
 
         .alert i {
-            font-size: 20px;
+            font-size: 22px;
         }
 
         .checkout-grid {
             display: grid;
-            grid-template-columns: 1fr 400px;
-            gap: 30px;
+            grid-template-columns: 1fr 420px;
+            gap: 35px;
         }
 
         .checkout-section {
             background: white;
-            border-radius: 12px;
-            padding: 30px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-            border: 1px solid #e8e8e8;
+            border-radius: 20px;
+            padding: 35px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06);
+            border: 1px solid rgba(231, 76, 60, 0.08);
         }
 
         .section-title {
-            font-size: 20px;
+            font-size: 22px;
             color: #2c3e50;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-weight: 700;
+            gap: 12px;
+            font-weight: 800;
         }
 
         .section-title i {
             color: #e74c3c;
+            font-size: 24px;
         }
 
         .cart-item {
             display: flex;
-            gap: 15px;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            margin-bottom: 15px;
+            gap: 18px;
+            padding: 18px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #f1f3f5 100%);
+            border-radius: 12px;
+            margin-bottom: 18px;
             border: 1px solid #e8e8e8;
+            transition: all 0.3s;
+        }
+
+        .cart-item:hover {
+            transform: translateX(5px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
         }
 
         .item-image {
-            width: 80px;
-            height: 80px;
-            border-radius: 8px;
+            width: 90px;
+            height: 90px;
+            border-radius: 12px;
             object-fit: cover;
             flex-shrink: 0;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
 
         .item-details {
             flex: 1;
             display: flex;
             flex-direction: column;
-            gap: 5px;
+            gap: 8px;
         }
 
         .item-name {
-            font-size: 15px;
-            font-weight: 600;
+            font-size: 16px;
+            font-weight: 700;
             color: #2c3e50;
-            line-height: 1.3;
+            line-height: 1.4;
         }
 
         .item-meta {
@@ -387,24 +391,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
 
         .item-quantity {
             color: #7f8c8d;
+            font-weight: 600;
         }
 
         .item-price {
-            font-weight: 600;
+            font-weight: 800;
             color: #e74c3c;
-            font-size: 16px;
+            font-size: 18px;
         }
 
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 24px;
         }
 
         .form-group label {
             display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
+            margin-bottom: 10px;
+            font-weight: 700;
             color: #2c3e50;
-            font-size: 14px;
+            font-size: 15px;
         }
 
         .form-group label span {
@@ -413,90 +418,93 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
 
         .form-control {
             width: 100%;
-            padding: 12px 16px;
+            padding: 14px 18px;
             border: 2px solid #e8e8e8;
-            border-radius: 8px;
-            font-size: 14px;
+            border-radius: 10px;
+            font-size: 15px;
             transition: all 0.3s;
             font-family: inherit;
+            font-weight: 500;
         }
 
         .form-control:focus {
             outline: none;
             border-color: #e74c3c;
-            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+            box-shadow: 0 0 0 4px rgba(231, 76, 60, 0.1);
         }
 
         textarea.form-control {
             resize: vertical;
-            min-height: 100px;
+            min-height: 110px;
         }
 
         .order-summary {
             background: white;
-            border-radius: 12px;
-            padding: 30px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-            border: 1px solid #e8e8e8;
+            border-radius: 20px;
+            padding: 35px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06);
+            border: 1px solid rgba(231, 76, 60, 0.08);
             position: sticky;
             top: 90px;
         }
 
         .summary-title {
-            font-size: 20px;
+            font-size: 22px;
             color: #2c3e50;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-weight: 700;
+            gap: 12px;
+            font-weight: 800;
+        }
+
+        .summary-title i {
+            color: #e74c3c;
+            font-size: 24px;
         }
 
         .summary-row {
             display: flex;
             justify-content: space-between;
-            padding: 12px 0;
+            padding: 15px 0;
             font-size: 15px;
             color: #7f8c8d;
-            border-bottom: 1px solid #e8e8e8;
-        }
-
-        .summary-row:last-child {
-            border-bottom: none;
+            font-weight: 600;
         }
 
         .summary-row.total {
-            font-size: 20px;
-            font-weight: 700;
+            font-size: 26px;
+            font-weight: 900;
             color: #e74c3c;
-            padding-top: 12px;
-            margin-top: 12px;
-            border-top: 2px solid #e8e8e8;
+            padding-top: 20px;
+            margin-top: 20px;
+            border-top: 3px solid #e8e8e8;
+            letter-spacing: -0.5px;
         }
 
         .submit-btn {
             width: 100%;
-            padding: 16px;
+            padding: 18px;
             background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             color: white;
             border: none;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: 700;
+            border-radius: 12px;
+            font-size: 17px;
+            font-weight: 800;
             cursor: pointer;
             transition: all 0.3s;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
-            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
-            margin-top: 20px;
+            gap: 12px;
+            box-shadow: 0 8px 25px rgba(231, 76, 60, 0.35);
+            margin-top: 25px;
         }
 
         .submit-btn:hover:not(:disabled) {
             background: linear-gradient(135deg, #c0392b 0%, #a93226 100%);
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(231, 76, 60, 0.4);
+            transform: translateY(-3px);
+            box-shadow: 0 12px 35px rgba(231, 76, 60, 0.45);
         }
 
         .submit-btn:disabled {
@@ -504,6 +512,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             cursor: not-allowed;
             transform: none;
             box-shadow: none;
+        }
+
+        .items-count {
+            background: linear-gradient(135deg, rgba(231, 76, 60, 0.1) 0%, rgba(192, 57, 43, 0.1) 100%);
+            padding: 12px 18px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: 700;
+            color: #e74c3c;
+            border: 2px solid rgba(231, 76, 60, 0.2);
         }
 
         @media (max-width: 968px) {
@@ -518,6 +537,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
 
             .navbar-content {
                 padding: 0 20px;
+            }
+
+            .checkout-header h1 {
+                font-size: 36px;
             }
         }
     </style>
@@ -538,7 +561,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
 
     <div class="checkout-container">
         <div class="checkout-header">
-            <h1>Checkout</h1>
+            <h1>🛒 Checkout</h1>
             <p>Review your order and complete your purchase</p>
         </div>
 
@@ -561,8 +584,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                 <div class="checkout-section">
                     <h2 class="section-title">
                         <i class="fas fa-shopping-bag"></i>
-                        Order Items (<?php echo count($cart_items); ?>)
+                        Order Items
                     </h2>
+                    
+                    <div class="items-count">
+                        <?php echo count($cart_items); ?> item<?php echo count($cart_items) > 1 ? 's' : ''; ?> in your cart
+                    </div>
                     
                     <?php foreach ($cart_items as $item): ?>
                         <div class="cart-item">
@@ -572,7 +599,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                             <div class="item-details">
                                 <div class="item-name"><?php echo htmlspecialchars($item['product_name']); ?></div>
                                 <div class="item-meta">
-                                    <span class="item-quantity">Quantity: <?php echo $item['quantity']; ?></span>
+                                    <span class="item-quantity">Qty: <?php echo $item['quantity']; ?> × Rs. <?php echo number_format($item['price'], 2); ?></span>
                                     <span class="item-price">Rs. <?php echo number_format($item['total_price'], 2); ?></span>
                                 </div>
                             </div>
@@ -590,13 +617,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                         <div class="form-group">
                             <label for="phone">Phone Number <span>*</span></label>
                             <input type="tel" name="phone" id="phone" class="form-control" 
-                                   value="<?php echo htmlspecialchars($user_data['phone'] ?? ''); ?>" required>
+                                   value="<?php echo htmlspecialchars($user_data['phone'] ?? ''); ?>" 
+                                   placeholder="Enter your phone number" required>
                         </div>
 
                         <div class="form-group">
                             <label for="delivery_address">Delivery Address <span>*</span></label>
                             <textarea name="delivery_address" id="delivery_address" class="form-control" 
-                                      placeholder="Enter your full delivery address" required><?php echo htmlspecialchars($user_data['address'] ?? ''); ?></textarea>
+                                      placeholder="Enter your complete delivery address with street, city, and postal code" required><?php echo htmlspecialchars($user_data['address'] ?? ''); ?></textarea>
                         </div>
                     </form>
                 </div>
@@ -608,30 +636,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                     Order Summary
                 </h2>
 
-                <div class="summary-row">
-                    <span>Subtotal (<?php echo count($cart_items); ?> items)</span>
-                    <span>Rs. <?php echo number_format($subtotal, 2); ?></span>
-                </div>
-
-                <div class="summary-row">
-                    <span>Shipping Fee</span>
-                    <span>Rs. <?php echo number_format($shipping, 2); ?></span>
-                </div>
-
-                <div class="summary-row">
-                    <span>Tax (8%)</span>
-                    <span>Rs. <?php echo number_format($tax, 2); ?></span>
-                </div>
-
                 <div class="summary-row total">
-                    <span>Total</span>
+                    <span>Total Amount</span>
                     <span>Rs. <?php echo number_format($total, 2); ?></span>
                 </div>
 
                 <button type="submit" name="place_order" form="checkoutForm" class="submit-btn">
                     <i class="fas fa-check-circle"></i>
-                    Place Order
+                    Place Order - Rs. <?php echo number_format($total, 2); ?>
                 </button>
+
+                <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 10px; text-align: center; font-size: 13px; color: #7f8c8d;">
+                    <i class="fas fa-shield-alt"></i> Secure checkout
+                </div>
             </div>
         </div>
     </div>
@@ -647,7 +664,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                 alert('Please fill in all required fields');
                 return false;
             }
+
+            // Optional: Phone validation
+            if (phone.length < 10) {
+                e.preventDefault();
+                alert('Please enter a valid phone number');
+                return false;
+            }
         });
     </script>
+    <?php include 'Components/Footer.php'; ?>
 </body>
 </html>

@@ -1020,5 +1020,6 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             window.location.href = 'OrderNow.php?product_id=' + productId;
         }
     </script>
+      <?php include 'Components/Footer.php'; ?>
 </body>
 </html>
