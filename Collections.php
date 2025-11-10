@@ -1,76 +1,75 @@
 <?php
-$servername = "localhost";
-$username = "root";
-$password = "";
-$database = "fashionhubdb";
-
-$conn = new mysqli($servername, $username, $password, $database);
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
+include 'db_connect.php';
+include 'Components/CustomerNavBar.php';
 
 // Get filter parameters
 $category_filter = isset($_GET['category']) ? intval($_GET['category']) : 0;
-$gender_filter = isset($_GET['gender']) ? $_GET['gender'] : '';
+$gender_filter = isset($_GET['gender']) ? intval($_GET['gender']) : -1;
 $size_filter = isset($_GET['size']) ? $_GET['size'] : '';
+$sort_by = isset($_GET['sort']) ? $_GET['sort'] : 'newest';
 $search = isset($_GET['search']) ? $conn->real_escape_string($_GET['search']) : '';
-$sort = isset($_GET['sort']) ? $_GET['sort'] : 'newest';
+$min_price = isset($_GET['min_price']) ? floatval($_GET['min_price']) : 0;
+$max_price = isset($_GET['max_price']) ? floatval($_GET['max_price']) : 999999;
 
-// Build query conditions
+// Build WHERE clause
 $where_conditions = ["p.stock_quantity > 0"];
 
 if ($category_filter > 0) {
     $where_conditions[] = "p.category_id = $category_filter";
 }
 
-if ($gender_filter !== '') {
-    $gender_value = intval($gender_filter);
-    $where_conditions[] = "p.gender = $gender_value";
+if ($gender_filter >= 0) {
+    $where_conditions[] = "p.gender = $gender_filter";
 }
 
-if ($size_filter !== '') {
-    $where_conditions[] = "p.size = '$size_filter'";
+if (!empty($size_filter)) {
+    $size_filter_escaped = $conn->real_escape_string($size_filter);
+    $where_conditions[] = "p.size = '$size_filter_escaped'";
 }
 
 if (!empty($search)) {
     $where_conditions[] = "(p.product_name LIKE '%$search%' OR p.description LIKE '%$search%')";
 }
 
-$where_clause = "WHERE " . implode(" AND ", $where_conditions);
+if ($min_price > 0 || $max_price < 999999) {
+    $where_conditions[] = "p.price >= $min_price AND p.price <= $max_price";
+}
 
-// Sort options
-$order_by = "ORDER BY p.id DESC";
-switch ($sort) {
+$where_clause = implode(" AND ", $where_conditions);
+
+// Determine ORDER BY
+$order_by = "p.id DESC";
+switch ($sort_by) {
     case 'price_low':
-        $order_by = "ORDER BY (p.price - (p.price * p.discount / 100)) ASC";
+        $order_by = "p.price ASC";
         break;
     case 'price_high':
-        $order_by = "ORDER BY (p.price - (p.price * p.discount / 100)) DESC";
+        $order_by = "p.price DESC";
         break;
     case 'name':
-        $order_by = "ORDER BY p.product_name ASC";
+        $order_by = "p.product_name ASC";
         break;
-    case 'discount':
-        $order_by = "ORDER BY p.discount DESC";
+    case 'popular':
+        $order_by = "p.stock_quantity ASC";
         break;
 }
 
 // Get products
-$query = "SELECT p.*, c.category_name 
-          FROM products p 
-          LEFT JOIN categories c ON p.category_id = c.id 
-          $where_clause 
-          $order_by";
-$products_result = $conn->query($query);
+$products_query = "SELECT p.*, c.category_name 
+                   FROM products p 
+                   LEFT JOIN categories c ON p.category_id = c.id 
+                   WHERE $where_clause
+                   ORDER BY $order_by";
+$products_result = $conn->query($products_query);
 
 // Get categories for filter
-$categories_query = "SELECT * FROM categories ORDER BY category_name ASC";
+$categories_query = "SELECT id, category_name FROM categories ORDER BY category_name ASC";
 $categories_result = $conn->query($categories_query);
 
-// Get product count
-$count_query = "SELECT COUNT(*) as total FROM products p $where_clause";
-$count_result = $conn->query($count_query);
-$total_products = $count_result->fetch_assoc()['total'];
+// Get price range
+$price_range_query = "SELECT MIN(price) as min_price, MAX(price) as max_price FROM products WHERE stock_quantity > 0";
+$price_range_result = $conn->query($price_range_query);
+$price_range = $price_range_result->fetch_assoc();
 ?>
 
 <!DOCTYPE html>
@@ -78,9 +77,9 @@ $total_products = $count_result->fetch_assoc()['total'];
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Premium Collections | FashionHub</title>
+    <title>Collections | FashionHub</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -89,702 +88,643 @@ $total_products = $count_result->fetch_assoc()['total'];
         }
 
         :root {
-            --primary: #e74c3c;
-            --primary-dark: #c0392b;
-            --secondary: #2c2c2c;
+            --primary: #2c3e50;
             --accent: #e74c3c;
-            --text-dark: #1a1a1a;
-            --text-light: #666;
-            --background: #fafafa;
+            --accent-dark: #c0392b;
+            --text: #2c3e50;
+            --text-light: #7f8c8d;
+            --bg-light: #f8f9fa;
             --white: #ffffff;
-            --border: #e5e5e5;
-            --shadow: rgba(0, 0, 0, 0.08);
         }
 
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--background);
-            color: var(--text-dark);
-            line-height: 1.6;
+            font-family: 'Inter', sans-serif;
+            color: var(--text);
+            background: var(--white);
             overflow-x: hidden;
         }
 
-        /* Luxury Hero Section */
-        .hero-section {
+        /* Hero Header */
+        .collections-hero {
+            padding: 140px 5% 80px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 50%, #fef5f5 100%);
             position: relative;
-            height: 75vh;
-            min-height: 600px;
-            background: linear-gradient(135deg, rgba(26, 26, 26, 0.85) 0%, rgba(44, 44, 44, 0.85) 100%),
-                        url('https://img.freepik.com/premium-photo/luxury-wardrobe-designer-suits-highend-clothing-rack-varied-color-palette-soft-lighting-wooden-close_1308352-1991.jpg');
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             overflow: hidden;
         }
 
-        .hero-background {
+        .collections-hero::before {
+            content: '';
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            opacity: 0.08;
-            background-image: url('data:image/svg+xml,%3Csvg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"%3E%3Cg fill="none" fill-rule="evenodd"%3E%3Cg fill="%23ffffff" fill-opacity="0.4"%3E%3Cpath d="M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z"/%3E%3C/g%3E%3C/g%3E%3C/svg%3E');
+            top: -20%;
+            right: -10%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(231, 76, 60, 0.08) 0%, transparent 70%);
+            border-radius: 50%;
+            animation: pulse 8s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.6; }
+            50% { transform: scale(1.15); opacity: 0.9; }
         }
 
         .hero-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            text-align: center;
             position: relative;
-            z-index: 2;
-            text-align: center;
-            max-width: 900px;
-            padding: 0 30px;
-            animation: fadeInUp 1s ease;
+            z-index: 1;
         }
 
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .hero-subtitle {
-            font-size: 14px;
-            letter-spacing: 4px;
-            text-transform: uppercase;
-            color: var(--primary);
-            margin-bottom: 20px;
-            font-weight: 600;
-        }
-
-        .hero-title {
+        .hero-content h1 {
             font-family: 'Playfair Display', serif;
-            font-size: 72px;
-            font-weight: 800;
-            color: var(--white);
-            margin-bottom: 25px;
-            line-height: 1.1;
-            letter-spacing: -2px;
-        }
-
-        .hero-description {
-            font-size: 18px;
-            color: rgba(255, 255, 255, 0.8);
-            margin-bottom: 40px;
-            line-height: 1.8;
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .hero-stats {
-            display: flex;
-            justify-content: center;
-            gap: 60px;
-            margin-top: 50px;
-        }
-
-        .stat-item {
-            text-align: center;
-        }
-
-        .stat-number {
-            font-size: 42px;
+            font-size: 64px;
             font-weight: 900;
             color: var(--primary);
-            display: block;
-            margin-bottom: 8px;
+            margin-bottom: 20px;
+            letter-spacing: -2px;
+            line-height: 1.1;
         }
 
-        .stat-label {
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            color: rgba(255, 255, 255, 0.6);
+        .hero-content h1 .highlight {
+            color: var(--accent);
+            position: relative;
+        }
+
+        .hero-content p {
+            font-size: 18px;
+            color: var(--text-light);
+            max-width: 600px;
+            margin: 0 auto 30px;
+            line-height: 1.8;
+        }
+
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            font-size: 14px;
+            color: var(--text-light);
+        }
+
+        .breadcrumb a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .breadcrumb a:hover {
+            color: var(--accent-dark);
         }
 
         /* Main Container */
-        .container {
+        .collections-container {
             max-width: 1600px;
-            margin: -80px auto 0;
-            padding: 0 40px 100px;
-            position: relative;
-            z-index: 3;
+            margin: 0 auto;
+            padding: 60px 5%;
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 50px;
         }
 
-        /* Premium Filter Section */
+        /* Sidebar Filters */
+        .filters-sidebar {
+            position: sticky;
+            top: 100px;
+            height: fit-content;
+        }
+
         .filter-section {
-            background: var(--white);
-            border-radius: 24px;
-            padding: 40px;
-            margin-bottom: 50px;
-            box-shadow: 0 20px 60px var(--shadow);
-            border: 1px solid var(--border);
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            transition: all 0.3s ease;
+        }
+
+        .filter-section:hover {
+            border-color: rgba(231, 76, 60, 0.2);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
         }
 
         .filter-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 35px;
-            padding-bottom: 25px;
-            border-bottom: 2px solid var(--border);
+            margin-bottom: 20px;
         }
 
-        .filter-title {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .filter-icon {
-            width: 50px;
-            height: 50px;
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--white);
-            font-size: 20px;
-        }
-
-        .filter-text h2 {
-            font-family: 'Playfair Display', serif;
-            font-size: 28px;
+        .filter-header h3 {
+            font-size: 18px;
             font-weight: 700;
-            color: var(--text-dark);
-            margin-bottom: 5px;
+            color: var(--primary);
         }
 
-        .product-count {
+        .clear-filter {
+            background: none;
+            border: none;
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+        }
+
+        .clear-filter:hover {
+            color: var(--accent-dark);
+        }
+
+        .filter-group {
+            margin-bottom: 20px;
+        }
+
+        .filter-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .filter-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .filter-options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .filter-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            padding: 10px 12px;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .filter-option:hover {
+            background: rgba(231, 76, 60, 0.05);
+        }
+
+        .filter-option input[type="radio"],
+        .filter-option input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+
+        .filter-option label {
+            flex: 1;
+            font-size: 14px;
+            color: var(--text);
+            cursor: pointer;
+        }
+
+        .filter-option .count {
+            font-size: 12px;
+            color: var(--text-light);
+            font-weight: 600;
+        }
+
+        .size-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .size-option {
+            padding: 12px;
+            border: 2px solid rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            text-align: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .size-option:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(231, 76, 60, 0.05);
+        }
+
+        .size-option.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .price-slider {
+            padding: 20px 10px;
+        }
+
+        .price-inputs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .price-input {
+            position: relative;
+        }
+
+        .price-input span {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
             font-size: 14px;
             color: var(--text-light);
-            font-weight: 500;
+            font-weight: 600;
+        }
+
+        .price-input input {
+            width: 100%;
+            padding: 12px 12px 12px 32px;
+            border: 2px solid rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+            transition: all 0.3s ease;
+        }
+
+        .price-input input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .apply-filters-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 25px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .apply-filters-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(231, 76, 60, 0.4);
+        }
+
+        /* Products Area */
+        .products-area {
+            min-height: 600px;
+        }
+
+        .products-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .results-info {
+            font-size: 16px;
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .results-info span {
+            color: var(--accent);
+            font-weight: 800;
+        }
+
+        .view-sort {
+            display: flex;
+            gap: 15px;
+            align-items: center;
         }
 
         .view-toggle {
             display: flex;
-            gap: 10px;
-            background: var(--background);
-            padding: 5px;
+            gap: 8px;
+            background: white;
+            padding: 8px;
             border-radius: 12px;
+            border: 1px solid rgba(0, 0, 0, 0.06);
         }
 
         .view-btn {
-            width: 45px;
-            height: 45px;
-            border: none;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             background: transparent;
+            border: none;
             border-radius: 8px;
             cursor: pointer;
-            transition: all 0.3s;
             color: var(--text-light);
+            transition: all 0.3s ease;
         }
 
         .view-btn.active {
-            background: var(--white);
-            color: var(--primary);
-            box-shadow: 0 2px 8px var(--shadow);
+            background: var(--accent);
+            color: white;
         }
 
-        .filter-controls {
-            display: grid;
-            grid-template-columns: 2fr repeat(4, 1fr);
-            gap: 20px;
-            margin-bottom: 25px;
+        .view-btn:hover:not(.active) {
+            background: rgba(231, 76, 60, 0.1);
+            color: var(--accent);
         }
 
-        .filter-group {
-            position: relative;
-        }
-
-        .filter-group label {
-            display: block;
-            font-size: 12px;
-            font-weight: 700;
-            color: var(--text-dark);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 10px;
-        }
-
-        .filter-group select,
-        .filter-group input {
-            width: 100%;
-            padding: 15px 18px;
-            border: 2px solid var(--border);
+        .sort-select {
+            padding: 12px 40px 12px 18px;
+            border: 1px solid rgba(0, 0, 0, 0.06);
             border-radius: 12px;
-            font-size: 15px;
-            font-weight: 500;
-            transition: all 0.3s;
-            background: var(--white);
-            color: var(--text-dark);
-            font-family: inherit;
-        }
-
-        .filter-group select:focus,
-        .filter-group input:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 4px rgba(212, 165, 116, 0.1);
-        }
-
-        .search-box {
-            position: relative;
-        }
-
-        .search-box input {
-            padding-left: 18px;
-            padding-right: 70px;
-        }
-
-.search-btn {
-            position: absolute;
-            right: 5px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            color: var(--white);
-            border: none;
-            width: 45px;
-            height: 45px;
-            border-radius: 10px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 16px;
-        }
-
-        .search-btn:hover {
-            background: linear-gradient(135deg, var(--primary-dark) 0%, #a93226 100%);
-            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
-        }
-
-        .search-btn:active {
-            transform: scale(0.95);
-        }
-
-        .filter-actions {
-            display: flex;
-            gap: 15px;
-        }
-
-        .btn-clear {
-            padding: 15px 30px;
-            background: var(--background);
-            color: var(--text-dark);
-            border: 2px solid var(--border);
-            border-radius: 12px;
-            font-weight: 600;
-            text-decoration: none;
-            transition: all 0.3s;
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
             font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+            cursor: pointer;
+            background: white url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%232c3e50' d='M6 9L1 4h10z'/%3E%3C/svg%3E") no-repeat right 15px center;
+            appearance: none;
+            transition: all 0.3s ease;
         }
 
-        .btn-clear:hover {
-            background: var(--white);
-            border-color: var(--primary);
-            color: var(--primary);
+        .sort-select:hover {
+            border-color: var(--accent);
         }
 
-        /* Premium Products Grid */
+        .sort-select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        /* Products Grid */
         .products-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-            gap: 40px;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 30px;
+            margin-bottom: 60px;
+        }
+
+        .products-grid.list-view {
+            grid-template-columns: 1fr;
         }
 
         .product-card {
-            background: var(--white);
+            background: white;
             border-radius: 20px;
             overflow: hidden;
-            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid rgba(0, 0, 0, 0.06);
             cursor: pointer;
             position: relative;
-            border: 1px solid var(--border);
-        }
-
-        .product-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            opacity: 0;
-            transition: opacity 0.5s;
-            z-index: 1;
-            pointer-events: none;
         }
 
         .product-card:hover {
-            transform: translateY(-12px);
-            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.15);
+            transform: translateY(-10px);
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.15);
+            border-color: rgba(231, 76, 60, 0.3);
         }
 
-        .product-card:hover::before {
-            opacity: 0.03;
-        }
-
-        .product-image-container {
+        .product-image-wrapper {
             position: relative;
             width: 100%;
-            height: 400px;
+            padding-bottom: 120%;
             overflow: hidden;
-            background: linear-gradient(135deg, #f5f5f5 0%, #e9e9e9 100%);
+            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
         }
 
         .product-image {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .product-card:hover .product-image {
-            transform: scale(1.08);
-        }
-
-        .product-placeholder {
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
             height: 100%;
             display: flex;
             align-items: center;
             justify-content: center;
+        }
+
+        .product-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.6s ease;
+        }
+
+        .product-card:hover .product-image img {
+            transform: scale(1.12);
+        }
+
+        .product-image i {
             font-size: 80px;
-            color: var(--border);
+            color: rgba(0, 0, 0, 0.08);
         }
 
-        .discount-badge {
+        .product-badges {
             position: absolute;
-            top: 20px;
-            left: 20px;
-            background: linear-gradient(135deg, var(--accent) 0%, #c0392b 100%);
-            color: var(--white);
-            padding: 10px 20px;
-            border-radius: 30px;
-            font-size: 13px;
-            font-weight: 700;
+            top: 15px;
+            left: 15px;
+            right: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
             z-index: 2;
-            box-shadow: 0 8px 20px rgba(231, 76, 60, 0.4);
-            letter-spacing: 0.5px;
         }
 
-        .stock-badge {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            padding: 10px 20px;
-            border-radius: 30px;
+        .badge {
+            padding: 6px 14px;
+            border-radius: 50px;
             font-size: 11px;
             font-weight: 700;
-            z-index: 2;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
             backdrop-filter: blur(10px);
         }
 
-        .stock-badge.low-stock {
+        .badge-discount {
+            background: rgba(231, 76, 60, 0.95);
+            color: white;
+        }
+
+        .badge-stock {
             background: rgba(255, 193, 7, 0.95);
-            color: #1a1a1a;
-            box-shadow: 0 8px 20px rgba(255, 193, 7, 0.4);
+            color: #333;
         }
 
-        .stock-badge.in-stock {
-            background: rgba(40, 167, 69, 0.95);
-            color: var(--white);
-            box-shadow: 0 8px 20px rgba(40, 167, 69, 0.4);
+        .quick-actions {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            opacity: 0;
+            transform: translateX(20px);
+            transition: all 0.4s ease;
+            z-index: 3;
         }
 
-        .product-wishlist {
-            display: none;
+        .product-card:hover .quick-actions {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .quick-btn {
+            width: 45px;
+            height: 45px;
+            background: white;
+            border: none;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: var(--text);
+            font-size: 16px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .quick-btn:hover {
+            background: var(--accent);
+            color: white;
+            transform: scale(1.1);
         }
 
         .product-info {
-            padding: 30px;
-            position: relative;
-            z-index: 2;
+            padding: 25px;
         }
 
         .product-category {
-            font-size: 11px;
-            color: var(--primary);
+            font-size: 12px;
+            color: var(--accent);
             font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 2px;
-            margin-bottom: 12px;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
         }
 
         .product-name {
-            font-family: 'Playfair Display', serif;
-            font-size: 24px;
+            font-size: 18px;
             font-weight: 700;
-            color: var(--text-dark);
-            margin-bottom: 15px;
-            line-height: 1.3;
+            color: var(--primary);
+            margin-bottom: 10px;
             display: -webkit-box;
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             overflow: hidden;
-        }
-
-        .product-description {
-            font-size: 14px;
-            color: var(--text-light);
-            margin-bottom: 20px;
-            line-height: 1.7;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
+            line-height: 1.4;
         }
 
         .product-attributes {
             display: flex;
-            gap: 12px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
         }
 
-        .attribute-badge {
-            padding: 8px 16px;
-            background: var(--background);
-            border-radius: 20px;
-            font-size: 12px;
-            color: var(--text-dark);
+        .attribute-tag {
+            padding: 5px 12px;
+            background: rgba(231, 76, 60, 0.08);
+            border-radius: 50px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--accent);
             display: flex;
             align-items: center;
-            gap: 6px;
-            font-weight: 600;
-            border: 1px solid var(--border);
+            gap: 5px;
         }
 
-        .attribute-badge i {
-            color: var(--primary);
-            font-size: 13px;
+        .product-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 15px;
+            border-top: 1px solid rgba(0, 0, 0, 0.06);
         }
 
         .product-price-section {
             display: flex;
-            align-items: baseline;
-            gap: 15px;
-            margin-bottom: 25px;
-            padding-top: 20px;
-            border-top: 1px solid var(--border);
+            flex-direction: column;
+            gap: 4px;
         }
 
         .product-price {
-            font-family: 'Playfair Display', serif;
-            font-size: 32px;
+            font-size: 26px;
             font-weight: 800;
-            color: var(--text-dark);
+            color: var(--accent);
         }
 
         .product-original-price {
-            font-size: 18px;
+            font-size: 15px;
             color: var(--text-light);
             text-decoration: line-through;
         }
 
-        .savings-badge {
-            padding: 4px 12px;
-            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
-            color: var(--white);
-            border-radius: 15px;
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-        }
-
-        .view-product-btn {
-            width: 100%;
-            padding: 16px;
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            color: var(--white);
-            border: none;
-            border-radius: 12px;
-            font-weight: 700;
-            font-size: 15px;
-            cursor: pointer;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-        }
-
-        .view-product-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 15px 35px rgba(212, 165, 116, 0.4);
-        }
-
-        /* Premium Login Modal */
-        .login-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.85);
-            backdrop-filter: blur(10px);
-            z-index: 9999;
-            align-items: center;
-            justify-content: center;
-            animation: fadeIn 0.4s;
-        }
-
-        .login-modal.active {
-            display: flex;
-        }
-
-        .login-modal-content {
-            background: var(--white);
-            border-radius: 30px;
-            width: 90%;
-            max-width: 550px;
-            overflow: hidden;
-            animation: modalSlideUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.3);
-        }
-
-        @keyframes modalSlideUp {
-            from {
-                transform: translateY(60px);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-
-        .login-modal-header {
-            background: linear-gradient(135deg, var(--secondary) 0%, #1a1a1a 100%);
-            padding: 50px 40px;
-            text-align: center;
-            position: relative;
-        }
-
-        .login-modal-icon {
-            width: 90px;
-            height: 90px;
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 25px;
-            font-size: 40px;
-            color: var(--white);
-            box-shadow: 0 15px 40px rgba(212, 165, 116, 0.3);
-        }
-
-        .close-login-modal {
-            position: absolute;
-            top: 25px;
-            right: 25px;
-            background: rgba(255, 255, 255, 0.1);
-            border: none;
-            color: var(--white);
+        .add-to-cart-btn {
             width: 45px;
             height: 45px;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            color: white;
+            border: none;
             border-radius: 50%;
             cursor: pointer;
-            font-size: 20px;
-            transition: all 0.3s;
-            backdrop-filter: blur(10px);
-        }
-
-        .close-login-modal:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: rotate(90deg);
-        }
-
-        .login-modal-header h2 {
-            font-family: 'Playfair Display', serif;
-            font-size: 34px;
-            color: var(--white);
-            margin-bottom: 12px;
-            font-weight: 700;
-        }
-
-        .login-modal-header p {
-            color: rgba(255, 255, 255, 0.8);
             font-size: 16px;
-        }
-
-        .login-modal-body {
-            padding: 50px 40px;
-            text-align: center;
-        }
-
-        .login-modal-body p {
-            font-size: 16px;
-            color: var(--text-light);
-            line-height: 1.9;
-            margin-bottom: 35px;
-        }
-
-        .login-modal-actions {
-            display: flex;
-            gap: 15px;
-        }
-
-        .btn-login-modal, .btn-signup-modal {
-            flex: 1;
-            padding: 18px;
-            border: none;
-            border-radius: 14px;
-            font-weight: 700;
-            font-size: 15px;
-            cursor: pointer;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
-            text-decoration: none;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(231, 76, 60, 0.3);
         }
 
-        .btn-login-modal {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            color: var(--white);
+        .add-to-cart-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 8px 20px rgba(231, 76, 60, 0.5);
         }
 
-        .btn-login-modal:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 30px rgba(212, 165, 116, 0.4);
+        /* List View Styles */
+        .product-card.list-view {
+            display: grid;
+            grid-template-columns: 300px 1fr;
         }
 
-        .btn-signup-modal {
-            background: var(--background);
-            color: var(--text-dark);
-            border: 2px solid var(--border);
+        .product-card.list-view .product-image-wrapper {
+            padding-bottom: 0;
+            height: 100%;
         }
 
-        .btn-signup-modal:hover {
-            background: var(--white);
-            border-color: var(--primary);
-            color: var(--primary);
+        .product-card.list-view .product-info {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 30px;
+            align-items: center;
+        }
+
+        .product-card.list-view .product-footer {
+            border-top: none;
+            padding-top: 0;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 15px;
         }
 
         /* Empty State */
@@ -794,298 +734,651 @@ $total_products = $count_result->fetch_assoc()['total'];
             grid-column: 1 / -1;
         }
 
-        .empty-state-icon {
+        .empty-state i {
             font-size: 100px;
-            color: var(--border);
+            color: rgba(0, 0, 0, 0.08);
             margin-bottom: 30px;
         }
 
         .empty-state h3 {
             font-family: 'Playfair Display', serif;
             font-size: 32px;
-            color: var(--text-dark);
+            font-weight: 700;
+            color: var(--primary);
             margin-bottom: 15px;
         }
 
         .empty-state p {
             font-size: 16px;
             color: var(--text-light);
+            margin-bottom: 30px;
         }
 
-        /* Responsive */
+        .empty-state-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 15px 35px;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            font-size: 15px;
+            font-weight: 700;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .empty-state-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(231, 76, 60, 0.4);
+        }
+
+        /* Mobile Filter Toggle */
+        .mobile-filter-toggle {
+            display: none;
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 10px 30px rgba(231, 76, 60, 0.4);
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .mobile-filter-toggle:hover {
+            transform: scale(1.1);
+        }
+
+        /* Responsive Design */
         @media (max-width: 1200px) {
-            .filter-controls {
-                grid-template-columns: repeat(2, 1fr);
+            .collections-container {
+                grid-template-columns: 280px 1fr;
+                gap: 30px;
             }
         }
 
         @media (max-width: 968px) {
-            .hero-title {
+            .collections-hero {
+                padding: 120px 20px 60px;
+            }
+
+            .hero-content h1 {
                 font-size: 48px;
             }
 
-            .hero-section {
-                background-attachment: scroll;
-            }
-
-            .hero-stats {
-                gap: 40px;
-            }
-
-            .container {
-                padding: 0 20px 60px;
-            }
-
-            .filter-controls {
+            .collections-container {
                 grid-template-columns: 1fr;
+                padding: 40px 20px;
+            }
+
+            .filters-sidebar {
+                position: fixed;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                max-width: 400px;
+                height: 100vh;
+                background: white;
+                z-index: 2000;
+                overflow-y: auto;
+                padding: 80px 20px 20px;
+                transition: left 0.4s ease;
+                box-shadow: 10px 0 30px rgba(0, 0, 0, 0.2);
+            }
+
+            .filters-sidebar.active {
+                left: 0;
+            }
+
+            .mobile-filter-toggle {
+                display: flex;
+                align-items: center;
+                justify-content: center;
             }
 
             .products-grid {
-                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-                gap: 25px;
+                grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                gap: 20px;
+            }
+
+            .products-header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .view-sort {
+                justify-content: space-between;
             }
         }
 
-        @media (max-width: 576px) {
-            .hero-title {
+        @media (max-width: 640px) {
+            .hero-content h1 {
                 font-size: 36px;
             }
 
-            .hero-stats {
-                flex-direction: column;
-                gap: 30px;
+            .products-grid {
+                grid-template-columns: 1fr;
             }
 
-            .filter-section {
-                padding: 25px;
+            .product-card.list-view {
+                grid-template-columns: 1fr;
             }
 
-            .login-modal-content {
-                margin: 20px;
+            .product-card.list-view .product-info {
+                grid-template-columns: 1fr;
+            }
+
+            .product-card.list-view .product-footer {
+                flex-direction: row;
+                justify-content: space-between;
+            }
+        }
+
+        /* Filter Overlay */
+        .filter-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1999;
+        }
+
+        .filter-overlay.active {
+            display: block;
+        }
+
+        .close-filters {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 20px;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .close-filters:hover {
+            transform: scale(1.1);
+        }
+
+        @media (max-width: 968px) {
+            .close-filters {
+                display: flex;
+            }
+        }
+
+        /* Members Only Modal Styles */
+        .login-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            z-index: 3000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .login-modal.active {
+            display: flex;
+        }
+
+        .login-modal-content {
+            background: white;
+            border-radius: 24px;
+            max-width: 500px;
+            width: 100%;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: slideUp 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+            from { 
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to { 
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .login-modal-header {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            padding: 50px 40px 40px;
+            text-align: center;
+            position: relative;
+            color: white;
+        }
+
+        .close-login-modal {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .close-login-modal:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: rotate(90deg);
+        }
+
+        .login-modal-icon {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 36px;
+            color: white;
+            backdrop-filter: blur(10px);
+        }
+
+        .login-modal-header h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: 32px;
+            font-weight: 900;
+            margin-bottom: 10px;
+            color: white;
+        }
+
+        .login-modal-header p {
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.95);
+            font-weight: 500;
+        }
+
+        .login-modal-body {
+            padding: 40px;
+        }
+
+        .login-modal-body p {
+            font-size: 15px;
+            color: var(--text-light);
+            line-height: 1.8;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .login-modal-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .btn-login-modal,
+        .btn-signup-modal {
+            padding: 16px 30px;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 700;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-login-modal {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            color: white;
+            box-shadow: 0 8px 20px rgba(231, 76, 60, 0.3);
+        }
+
+        .btn-login-modal:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 30px rgba(231, 76, 60, 0.4);
+        }
+
+        .btn-signup-modal {
+            background: white;
+            color: var(--accent);
+            border: 2px solid var(--accent);
+        }
+
+        .btn-signup-modal:hover {
+            background: rgba(231, 76, 60, 0.05);
+            transform: translateY(-2px);
+        }
+
+        @media (max-width: 640px) {
+            .login-modal-header {
+                padding: 40px 30px 30px;
+            }
+
+            .login-modal-header h2 {
+                font-size: 26px;
             }
 
             .login-modal-body {
-                padding: 35px 25px;
+                padding: 30px;
             }
 
-            .login-modal-actions {
-                flex-direction: column;
+            .login-modal-icon {
+                width: 70px;
+                height: 70px;
+                font-size: 32px;
             }
         }
     </style>
 </head>
 <body>
-    <!-- Premium Hero Section -->
-    <section class="hero-section">
-        <div class="hero-background"></div>
+    <!-- Hero Header -->
+    <section class="collections-hero">
         <div class="hero-content">
-            <div class="hero-subtitle">Curated Excellence</div>
-            <h1 class="hero-title">Premium Collections</h1>
-            <p class="hero-description">Discover our handpicked selection of luxury fashion pieces. Each item is carefully chosen to bring sophistication and style to your wardrobe.</p>
-            
-            <div class="hero-stats">
-                <div class="stat-item">
-                    <span class="stat-number"><?php echo $total_products; ?>+</span>
-                    <span class="stat-label">Products</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-number"><?php echo $categories_result->num_rows; ?>+</span>
-                    <span class="stat-label">Categories</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-number">100%</span>
-                    <span class="stat-label">Authentic</span>
-                </div>
+            <h1>Discover Your <span class="highlight">Perfect Style</span></h1>
+            <p>Explore our curated collection of premium fashion pieces, handpicked for the discerning trendsetter</p>
+            <div class="breadcrumb">
+                <a href="/fashionhub/Homepage.php">Home</a>
+                <i class="fas fa-chevron-right"></i>
+                <span>Collections</span>
             </div>
         </div>
     </section>
 
     <!-- Main Container -->
-    <div class="container">
-        <!-- Premium Filter Section -->
-        <div class="filter-section">
-            <div class="filter-header">
-                <div class="filter-title">
-                    <div class="filter-icon">
-                        <i class="fas fa-sliders-h"></i>
-                    </div>
-                    <div class="filter-text">
-                        <h2>Refine Your Search</h2>
-                        <div class="product-count"><?php echo $total_products; ?> exclusive pieces available</div>
-                    </div>
-                </div>
-                <div class="view-toggle">
-                    <button class="view-btn active" title="Grid View">
-                        <i class="fas fa-th"></i>
-                    </button>
-                    <button class="view-btn" title="List View">
-                        <i class="fas fa-list"></i>
-                    </button>
-                </div>
-            </div>
+    <div class="collections-container">
+        <!-- Filters Sidebar -->
+        <aside class="filters-sidebar" id="filtersSidebar">
+            <button class="close-filters" onclick="toggleFilters()">
+                <i class="fas fa-times"></i>
+            </button>
 
-            <form method="GET" action="Collections.php" id="filterForm">
-                <div class="filter-controls">
-                    <div class="filter-group search-box">
-                        <label>Search Products</label>
-                        <input type="text" 
-                               name="search" 
-                               id="searchInput"
-                               placeholder="Search by name or description..." 
-                               value="<?php echo htmlspecialchars($search); ?>"
-                               autocomplete="off">
-                        <button type="submit" class="search-btn">
-                            <i class="fas fa-search"></i>
+            <form method="GET" action="Collections.php" id="filtersForm">
+                <!-- Category Filter -->
+                <div class="filter-section">
+                    <div class="filter-header">
+                        <h3>Categories</h3>
+                    </div>
+                    <div class="filter-options">
+                        <div class="filter-option">
+                            <input type="radio" name="category" value="0" id="cat_all" 
+                                   <?php echo $category_filter == 0 ? 'checked' : ''; ?> 
+                                   onchange="this.form.submit()">
+                            <label for="cat_all">All Categories</label>
+                        </div>
+                        <?php while ($category = $categories_result->fetch_assoc()): ?>
+                        <div class="filter-option">
+                            <input type="radio" name="category" value="<?php echo $category['id']; ?>" 
+                                   id="cat_<?php echo $category['id']; ?>"
+                                   <?php echo $category_filter == $category['id'] ? 'checked' : ''; ?>
+                                   onchange="this.form.submit()">
+                            <label for="cat_<?php echo $category['id']; ?>">
+                                <?php echo htmlspecialchars($category['category_name']); ?>
+                            </label>
+                        </div>
+                        <?php endwhile; ?>
+                    </div>
+                </div>
+
+                <!-- Gender Filter -->
+                <div class="filter-section">
+                    <div class="filter-header">
+                        <h3>Gender</h3>
+                    </div>
+                    <div class="filter-options">
+                        <div class="filter-option">
+                            <input type="radio" name="gender" value="-1" id="gender_all" 
+                                   <?php echo $gender_filter == -1 ? 'checked' : ''; ?> 
+                                   onchange="this.form.submit()">
+                            <label for="gender_all">All</label>
+                        </div>
+                        <div class="filter-option">
+                            <input type="radio" name="gender" value="0" id="gender_men" 
+                                   <?php echo $gender_filter === 0 ? 'checked' : ''; ?> 
+                                   onchange="this.form.submit()">
+                            <label for="gender_men">Men</label>
+                        </div>
+                        <div class="filter-option">
+                            <input type="radio" name="gender" value="1" id="gender_women" 
+                                   <?php echo $gender_filter === 1 ? 'checked' : ''; ?> 
+                                   onchange="this.form.submit()">
+                            <label for="gender_women">Women</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Size Filter -->
+                <div class="filter-section">
+                    <div class="filter-header">
+                        <h3>Size</h3>
+                        <?php if (!empty($size_filter)): ?>
+                        <button type="button" class="clear-filter" onclick="clearSize()">Clear</button>
+                        <?php endif; ?>
+                    </div>
+                    <div class="size-grid">
+                        <?php 
+                        $sizes = ['S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+                        foreach ($sizes as $size): 
+                        ?>
+                        <div class="size-option <?php echo $size_filter == $size ? 'active' : ''; ?>" 
+                             onclick="selectSize('<?php echo $size; ?>')">
+                            <?php echo $size; ?>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <input type="hidden" name="size" id="sizeInput" value="<?php echo htmlspecialchars($size_filter); ?>">
+                </div>
+
+                <!-- Price Range Filter -->
+                <div class="filter-section">
+                    <div class="filter-header">
+                        <h3>Price Range</h3>
+                    </div>
+                    <div class="price-slider">
+                        <div class="price-inputs">
+                            <div class="price-input">
+                                <span>Rs.</span>
+                                <input type="number" name="min_price" placeholder="Min" 
+                                       value="<?php echo $min_price > 0 ? $min_price : ''; ?>" 
+                                       min="0" step="100">
+                            </div>
+                            <div class="price-input">
+                                <span>Rs.</span>
+                                <input type="number" name="max_price" placeholder="Max" 
+                                       value="<?php echo $max_price < 999999 ? $max_price : ''; ?>" 
+                                       min="0" step="100">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Search -->
+                <?php if (!empty($search)): ?>
+                <input type="hidden" name="search" value="<?php echo htmlspecialchars($search); ?>">
+                <?php endif; ?>
+
+                <!-- Sort -->
+                <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sort_by); ?>">
+
+                <!-- Apply Filters Button -->
+                <button type="submit" class="apply-filters-btn">
+                    <i class="fas fa-filter"></i> Apply Filters
+                </button>
+            </form>
+        </aside>
+
+        <!-- Products Area -->
+        <main class="products-area">
+            <!-- Products Header -->
+            <div class="products-header">
+                <div class="results-info">
+                    Showing <span><?php echo $products_result->num_rows; ?></span> 
+                    <?php echo $products_result->num_rows == 1 ? 'Product' : 'Products'; ?>
+                </div>
+
+                <div class="view-sort">
+                    <div class="view-toggle">
+                        <button class="view-btn active" id="gridViewBtn" onclick="setView('grid')">
+                            <i class="fas fa-th"></i>
+                        </button>
+                        <button class="view-btn" id="listViewBtn" onclick="setView('list')">
+                            <i class="fas fa-list"></i>
                         </button>
                     </div>
 
-                    <div class="filter-group">
-                        <label>Category</label>
-                        <select name="category" onchange="this.form.submit()">
-                            <option value="0">All Categories</option>
-                            <?php 
-                            $categories_result->data_seek(0);
-                            while ($cat = $categories_result->fetch_assoc()): 
-                            ?>
-                                <option value="<?php echo $cat['id']; ?>" <?php echo $category_filter == $cat['id'] ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($cat['category_name']); ?>
-                                </option>
-                            <?php endwhile; ?>
-                        </select>
-                    </div>
-
-                    <div class="filter-group">
-                        <label>Gender</label>
-                        <select name="gender" onchange="this.form.submit()">
-                            <option value="">All Genders</option>
-                            <option value="0" <?php echo $gender_filter === '0' ? 'selected' : ''; ?>>Men's Collection</option>
-                            <option value="1" <?php echo $gender_filter === '1' ? 'selected' : ''; ?>>Women's Collection</option>
-                        </select>
-                    </div>
-
-                    <div class="filter-group">
-                        <label>Size</label>
-                        <select name="size" onchange="this.form.submit()">
-                            <option value="">All Sizes</option>
-                            <option value="S" <?php echo $size_filter == 'S' ? 'selected' : ''; ?>>Small (S)</option>
-                            <option value="M" <?php echo $size_filter == 'M' ? 'selected' : ''; ?>>Medium (M)</option>
-                            <option value="L" <?php echo $size_filter == 'L' ? 'selected' : ''; ?>>Large (L)</option>
-                            <option value="XL" <?php echo $size_filter == 'XL' ? 'selected' : ''; ?>>Extra Large (XL)</option>
-                            <option value="XXL" <?php echo $size_filter == 'XXL' ? 'selected' : ''; ?>>2XL</option>
-                            <option value="XXXL" <?php echo $size_filter == 'XXXL' ? 'selected' : ''; ?>>3XL</option>
-                        </select>
-                    </div>
-
-                    <div class="filter-group">
-                        <label>Sort By</label>
-                        <select name="sort" onchange="this.form.submit()">
-                            <option value="newest" <?php echo $sort == 'newest' ? 'selected' : ''; ?>>Newest Arrivals</option>
-                            <option value="price_low" <?php echo $sort == 'price_low' ? 'selected' : ''; ?>>Price: Low to High</option>
-                            <option value="price_high" <?php echo $sort == 'price_high' ? 'selected' : ''; ?>>Price: High to Low</option>
-                            <option value="name" <?php echo $sort == 'name' ? 'selected' : ''; ?>>Alphabetical</option>
-                            <option value="discount" <?php echo $sort == 'discount' ? 'selected' : ''; ?>>Best Deals</option>
-                        </select>
-                    </div>
+                    <select class="sort-select" name="sort" onchange="changeSort(this.value)">
+                        <option value="newest" <?php echo $sort_by == 'newest' ? 'selected' : ''; ?>>Newest First</option>
+                        <option value="price_low" <?php echo $sort_by == 'price_low' ? 'selected' : ''; ?>>Price: Low to High</option>
+                        <option value="price_high" <?php echo $sort_by == 'price_high' ? 'selected' : ''; ?>>Price: High to Low</option>
+                        <option value="name" <?php echo $sort_by == 'name' ? 'selected' : ''; ?>>Name: A to Z</option>
+                        <option value="popular" <?php echo $sort_by == 'popular' ? 'selected' : ''; ?>>Most Popular</option>
+                    </select>
                 </div>
+            </div>
 
-                <div class="filter-actions">
-                    <a href="Collections.php" class="btn-clear">
-                        <i class="fas fa-redo-alt"></i>
-                        Reset All Filters
-                    </a>
-                </div>
-            </form>
-        </div>
-
-        <!-- Premium Products Grid -->
-        <div class="products-grid">
-            <?php if ($products_result->num_rows > 0): ?>
-                <?php while ($product = $products_result->fetch_assoc()): ?>
-                    <?php
-                    $final_price = $product['price'] - ($product['price'] * $product['discount'] / 100);
-                    $savings = $product['price'] - $final_price;
-                    $stock_class = $product['stock_quantity'] <= 10 ? 'low-stock' : 'in-stock';
-                    $stock_text = $product['stock_quantity'] <= 10 ? 'Only ' . $product['stock_quantity'] . ' Left' : 'In Stock';
-                    ?>
-                    <div class="product-card" onclick="showLoginModal()">
-                        <div class="product-image-container">
-                            <?php if ($product['discount'] > 0): ?>
-                                <div class="discount-badge">-<?php echo $product['discount']; ?>% OFF</div>
-                            <?php endif; ?>
-                            <div class="stock-badge <?php echo $stock_class; ?>"><?php echo $stock_text; ?></div>
-                            
-                            <?php if (!empty($product['product_photo'])): ?>
-                                <img src="data:image/jpeg;base64,<?php echo $product['product_photo']; ?>" 
-                                     alt="<?php echo htmlspecialchars($product['product_name']); ?>"
-                                     class="product-image"
-                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                                <div class="product-placeholder" style="display: none;">
-                                    <i class="fas fa-tshirt"></i>
+            <!-- Products Grid -->
+            <div class="products-grid" id="productsGrid">
+                <?php if ($products_result->num_rows > 0): ?>
+                    <?php while ($product = $products_result->fetch_assoc()): ?>
+                        <?php 
+                        $final_price = $product['price'] - ($product['price'] * $product['discount'] / 100);
+                        ?>
+                        <div class="product-card" onclick="window.location.href='/fashionhub/ProductDetails.php?id=<?php echo $product['id']; ?>'">
+                            <div class="product-image-wrapper">
+                                <div class="product-image">
+                                    <?php if (!empty($product['product_photo'])): ?>
+                                        <img src="data:image/jpeg;base64,<?php echo $product['product_photo']; ?>" 
+                                             alt="<?php echo htmlspecialchars($product['product_name']); ?>"
+                                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                        <i class="fas fa-tshirt" style="display: none;"></i>
+                                    <?php else: ?>
+                                        <i class="fas fa-tshirt"></i>
+                                    <?php endif; ?>
                                 </div>
-                            <?php else: ?>
-                                <div class="product-placeholder">
-                                    <i class="fas fa-tshirt"></i>
+
+                                <div class="product-badges">
+                                    <?php if ($product['discount'] > 0): ?>
+                                        <span class="badge badge-discount"><?php echo $product['discount']; ?>% OFF</span>
+                                    <?php endif; ?>
+                                    
+                                    <?php if ($product['stock_quantity'] <= 10): ?>
+                                        <span class="badge badge-stock">Low Stock</span>
+                                    <?php endif; ?>
                                 </div>
-                            <?php endif; ?>
+
+                                <div class="quick-actions">
+                                    <button class="quick-btn" onclick="event.stopPropagation(); quickView(<?php echo $product['id']; ?>)" title="Quick View">
+                                        <i class="far fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="product-info">
+                                <div>
+                                    <div class="product-category"><?php echo htmlspecialchars($product['category_name']); ?></div>
+                                    <h3 class="product-name"><?php echo htmlspecialchars($product['product_name']); ?></h3>
+                                    
+                                    <?php if ($product['gender'] !== null || $product['size'] !== null): ?>
+                                    <div class="product-attributes">
+                                        <?php if ($product['gender'] !== null): ?>
+                                        <span class="attribute-tag">
+                                            <i class="fas fa-venus-mars"></i>
+                                            <?php echo $product['gender'] == 0 ? 'Men' : 'Women'; ?>
+                                        </span>
+                                        <?php endif; ?>
+                                        
+                                        <?php if ($product['size'] !== null): ?>
+                                        <span class="attribute-tag">
+                                            <i class="fas fa-ruler"></i>
+                                            <?php echo htmlspecialchars($product['size']); ?>
+                                        </span>
+                                        <?php endif; ?>
+                                    </div>
+                                    <?php endif; ?>
+                                </div>
+
+                                <div class="product-footer">
+                                    <div class="product-price-section">
+                                        <div class="product-price">Rs.<?php echo number_format($final_price, 2); ?></div>
+                                        <?php if ($product['discount'] > 0): ?>
+                                            <div class="product-original-price">Rs.<?php echo number_format($product['price'], 2); ?></div>
+                                        <?php endif; ?>
+                                    </div>
+
+                                    <button class="add-to-cart-btn" onclick="event.stopPropagation(); addToCart(<?php echo $product['id']; ?>)" title="Add to Cart">
+                                        <i class="fas fa-shopping-cart"></i>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
-
-                        <div class="product-info">
-                            <div class="product-category"><?php echo htmlspecialchars($product['category_name']); ?></div>
-                            <div class="product-name"><?php echo htmlspecialchars($product['product_name']); ?></div>
-                            <div class="product-description">
-                                <?php echo htmlspecialchars($product['description'] ?: 'Exquisite quality and timeless design. Crafted for those who appreciate the finer things in life.'); ?>
-                            </div>
-
-                            <?php if ($product['gender'] !== null || $product['size'] !== null): ?>
-                            <div class="product-attributes">
-                                <?php if ($product['gender'] !== null): ?>
-                                <span class="attribute-badge">
-                                    <i class="fas fa-venus-mars"></i>
-                                    <?php echo $product['gender'] == 0 ? "Men's" : "Women's"; ?>
-                                </span>
-                                <?php endif; ?>
-                                
-                                <?php if ($product['size'] !== null): ?>
-                                <span class="attribute-badge">
-                                    <i class="fas fa-ruler"></i>
-                                    Size <?php echo htmlspecialchars($product['size']); ?>
-                                </span>
-                                <?php endif; ?>
-                            </div>
-                            <?php endif; ?>
-
-                            <div class="product-price-section">
-                                <div class="product-price">Rs.<?php echo number_format($final_price, 2); ?></div>
-                                <?php if ($product['discount'] > 0): ?>
-                                    <div class="product-original-price">Rs.<?php echo number_format($product['price'], 2); ?></div>
-                                    <span class="savings-badge">Save Rs.<?php echo number_format($savings, 2); ?></span>
-                                <?php endif; ?>
-                            </div>
-
-                            <button class="view-product-btn">
-                                <i class="fas fa-eye"></i>
-                                View Details
-                            </button>
-                        </div>
-                    </div>
-                <?php endwhile; ?>
-            <?php else: ?>
-                <div class="empty-state">
-                    <div class="empty-state-icon">
+                    <?php endwhile; ?>
+                <?php else: ?>
+                    <div class="empty-state">
                         <i class="fas fa-search"></i>
+                        <h3>No Products Found</h3>
+                        <p>We couldn't find any products matching your criteria. Try adjusting your filters.</p>
+                        <a href="Collections.php" class="empty-state-btn">
+                            <i class="fas fa-redo"></i>
+                            <span>Clear All Filters</span>
+                        </a>
                     </div>
-                    <h3>No Products Found</h3>
-                    <p>We couldn't find any products matching your criteria. Try adjusting your filters.</p>
-                </div>
-            <?php endif; ?>
-        </div>
+                <?php endif; ?>
+            </div>
+        </main>
     </div>
 
-    <!-- Premium Login Modal -->
-    <div class="login-modal" id="loginModal">
+    <!-- Mobile Filter Toggle -->
+    <button class="mobile-filter-toggle" onclick="toggleFilters()">
+        <i class="fas fa-filter"></i>
+    </button>
+
+    <!-- Filter Overlay -->
+    <div class="filter-overlay" id="filterOverlay" onclick="toggleFilters()"></div>
+
+    <!-- Members Only Modal -->
+    <div class="login-modal" id="membersOnlyModal">
         <div class="login-modal-content">
             <div class="login-modal-header">
-                <button class="close-login-modal" onclick="closeLoginModal()">
+                <button class="close-login-modal" onclick="closeMembersOnlyModal()">
                     <i class="fas fa-times"></i>
                 </button>
                 <div class="login-modal-icon">
@@ -1095,113 +1388,217 @@ $total_products = $count_result->fetch_assoc()['total'];
                 <p>Exclusive access for registered members</p>
             </div>
             <div class="login-modal-body">
-                <p>To view complete product details, add items to your wishlist, and enjoy exclusive member benefits, please log in to your account or create a new one.</p>
+                <p>To add items to your cart and enjoy exclusive member benefits, please log in to your account or create a new one.</p>
                 <div class="login-modal-actions">
-                    <a href="Homepage.php" class="btn-login-modal">
+                    <button class="btn-login-modal" onclick="openLoginFromMembersModal()">
                         <i class="fas fa-sign-in-alt"></i>
                         Login
-                    </a>
-                    <a href="Homepage.php" class="btn-signup-modal">
+                    </button>
+                    <button class="btn-signup-modal" onclick="openSignupFromMembersModal()">
                         <i class="fas fa-user-plus"></i>
                         Create Account
-                    </a>
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 
+    <?php include 'Components/Footer.php'; ?>
+
     <script>
-        // Auto-search functionality with debounce (optional - can still use button)
-        let searchTimeout;
-        const searchInput = document.getElementById('searchInput');
-        const filterForm = document.getElementById('filterForm');
+ // Add to Cart - Opens "Members Only" modal for non-logged-in users
+function addToCart(productId) {
+    // For testing/debugging - check if user is logged in
+    // Replace this with your actual session check
+    const isLoggedIn = false; // Change based on your PHP session: <?php echo isset($_SESSION['user_id']) ? 'true' : 'false'; ?>
+    
+    if (!isLoggedIn) {
+        console.log('Opening members only modal...'); // Debug log
+        openMembersOnlyModal();
+    } else {
+        // Add your cart logic here for logged-in users
+        console.log('Adding to cart: Product ID ' + productId);
+        // You can add AJAX call here to add to cart
+        alert('Product added to cart! (Product ID: ' + productId + ')');
+    }
+}
 
-        if (searchInput) {
-            searchInput.addEventListener('input', function() {
-                clearTimeout(searchTimeout);
-                
-                // Wait 800ms after user stops typing before submitting
-                searchTimeout = setTimeout(() => {
-                    filterForm.submit();
-                }, 800);
-            });
+// Members Only Modal Functions
+function openMembersOnlyModal() {
+    console.log('openMembersOnlyModal called'); // Debug log
+    const modal = document.getElementById('membersOnlyModal');
+    console.log('Modal element:', modal); // Debug log
+    
+    if (modal) {
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        console.log('Modal opened successfully'); // Debug log
+    } else {
+        console.error('Members Only Modal not found!'); // Error log
+    }
+}
 
-            // Also submit on Enter key
-            searchInput.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    filterForm.submit();
-                }
-            });
-        }
+function closeMembersOnlyModal() {
+    const modal = document.getElementById('membersOnlyModal');
+    if (modal) {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+}
 
-        function showLoginModal() {
-            document.getElementById('loginModal').classList.add('active');
+// Function to open navbar login modal from members only modal
+function openLoginFromMembersModal() {
+    closeMembersOnlyModal();
+    
+    // Wait a bit for modal to close, then try to trigger login
+    setTimeout(function() {
+        // Try multiple ways to open the login modal
+        const navLoginBtn = document.getElementById('loginBtn');
+        const loginLink = document.querySelector('[href*="login"]');
+        const loginModal = document.getElementById('loginModal');
+        
+        if (navLoginBtn) {
+            navLoginBtn.click();
+        } else if (loginModal) {
+            loginModal.classList.add('active');
             document.body.style.overflow = 'hidden';
+        } else if (loginLink) {
+            loginLink.click();
+        } else {
+            // Fallback: redirect to login page or homepage
+            window.location.href = '/fashionhub/Homepage.php?action=login';
         }
+    }, 300);
+}
 
-        function closeLoginModal() {
-            document.getElementById('loginModal').classList.remove('active');
-            document.body.style.overflow = 'auto';
+// Function to open navbar signup modal from members only modal
+function openSignupFromMembersModal() {
+    closeMembersOnlyModal();
+    
+    // Wait a bit for modal to close, then try to trigger signup
+    setTimeout(function() {
+        // Try multiple ways to open the signup modal
+        const navSignupBtn = document.getElementById('signupBtn');
+        const signupLink = document.querySelector('[href*="signup"]');
+        const signupModal = document.getElementById('signupModal');
+        
+        if (navSignupBtn) {
+            navSignupBtn.click();
+        } else if (signupModal) {
+            signupModal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        } else if (signupLink) {
+            signupLink.click();
+        } else {
+            // Fallback: redirect to signup page or homepage
+            window.location.href = '/fashionhub/Homepage.php?action=signup';
         }
+    }, 300);
+}
 
-        // Close modal when clicking outside
-        document.getElementById('loginModal').addEventListener('click', function(e) {
+// Close members only modal on escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        const membersModal = document.getElementById('membersOnlyModal');
+        if (membersModal && membersModal.classList.contains('active')) {
+            closeMembersOnlyModal();
+        }
+        
+        const sidebar = document.getElementById('filtersSidebar');
+        if (sidebar && sidebar.classList.contains('active')) {
+            toggleFilters();
+        }
+    }
+});
+
+// Close members only modal when clicking outside
+document.addEventListener('DOMContentLoaded', function() {
+    const membersModal = document.getElementById('membersOnlyModal');
+    if (membersModal) {
+        membersModal.addEventListener('click', function(e) {
             if (e.target === this) {
-                closeLoginModal();
+                closeMembersOnlyModal();
             }
         });
+    }
+    
+    // Test if modal exists on page load
+    console.log('Members Only Modal exists:', !!membersModal);
+});
 
-        // Close modal with Escape key
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                closeLoginModal();
-            }
-        });
+// Quick View
+function quickView(productId) {
+    window.location.href = '/fashionhub/ProductDetails.php?id=' + productId;
+}
 
-        // View toggle functionality
-        const viewBtns = document.querySelectorAll('.view-btn');
-        const productsGrid = document.querySelector('.products-grid');
+// View Toggle
+function setView(view) {
+    const grid = document.getElementById('productsGrid');
+    const gridBtn = document.getElementById('gridViewBtn');
+    const listBtn = document.getElementById('listViewBtn');
+    const cards = document.querySelectorAll('.product-card');
 
-        viewBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                viewBtns.forEach(b => b.classList.remove('active'));
-                this.classList.add('active');
-                
-                if (this.querySelector('.fa-list')) {
-                    productsGrid.style.gridTemplateColumns = '1fr';
-                } else {
-                    productsGrid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(340px, 1fr))';
-                }
-            });
-        });
+    if (view === 'grid') {
+        grid.classList.remove('list-view');
+        gridBtn.classList.add('active');
+        listBtn.classList.remove('active');
+        cards.forEach(card => card.classList.remove('list-view'));
+    } else {
+        grid.classList.add('list-view');
+        listBtn.classList.add('active');
+        gridBtn.classList.remove('active');
+        cards.forEach(card => card.classList.add('list-view'));
+    }
 
-        // Smooth scroll animation
-        document.addEventListener('DOMContentLoaded', function() {
-            const cards = document.querySelectorAll('.product-card');
-            
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach((entry, index) => {
-                    if (entry.isIntersecting) {
-                        setTimeout(() => {
-                            entry.target.style.opacity = '1';
-                            entry.target.style.transform = 'translateY(0)';
-                        }, index * 100);
-                    }
-                });
-            }, {
-                threshold: 0.1
-            });
+    localStorage.setItem('preferredView', view);
+}
 
-            cards.forEach(card => {
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(30px)';
-                card.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
-                observer.observe(card);
-            });
-        });
+// Load preferred view
+window.addEventListener('DOMContentLoaded', function() {
+    const preferredView = localStorage.getItem('preferredView') || 'grid';
+    setView(preferredView);
+});
+
+// Sort Change
+function changeSort(sortValue) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('sort', sortValue);
+    window.location.href = url.toString();
+}
+
+// Size Selection
+function selectSize(size) {
+    const sizeInput = document.getElementById('sizeInput');
+    const currentSize = sizeInput.value;
+    
+    if (currentSize === size) {
+        sizeInput.value = '';
+    } else {
+        sizeInput.value = size;
+    }
+    
+    document.getElementById('filtersForm').submit();
+}
+
+function clearSize() {
+    document.getElementById('sizeInput').value = '';
+    document.getElementById('filtersForm').submit();
+}
+
+// Mobile Filter Toggle
+function toggleFilters() {
+    const sidebar = document.getElementById('filtersSidebar');
+    const overlay = document.getElementById('filterOverlay');
+    
+    sidebar.classList.toggle('active');
+    overlay.classList.toggle('active');
+    document.body.style.overflow = sidebar.classList.contains('active') ? 'hidden' : '';
+}
+
+// Smooth scroll to top when changing filters
+document.getElementById('filtersForm').addEventListener('submit', function() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+});
     </script>
 </body>
 </html>
-
-<?php $conn->close(); ?>

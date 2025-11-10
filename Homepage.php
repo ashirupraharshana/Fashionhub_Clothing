@@ -74,7 +74,7 @@ $hero_image = $hero_image_result->fetch_assoc();
             display: flex;
             align-items: center;
             background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 50%, #fef5f5 100%);
-            padding: 140px 5% 80px;
+            padding: 50px 5% 80px;
             position: relative;
             overflow: hidden;
         }
@@ -1000,7 +1000,7 @@ $hero_image = $hero_image_result->fetch_assoc();
                     // Calculate final price after discount
                     $final_price = $product['price'] - ($product['price'] * $product['discount'] / 100);
                 ?>
-                <div class="product-card" onclick="window.location.href='/fashionhub/Customer/Products.php'">
+                <div class="product-card" onclick="window.location.href='/fashionhub/Collections.php'">
                     <div class="product-image">
                         <?php if (!empty($product['product_photo'])): ?>
                             <img src="data:image/jpeg;base64,<?php echo $product['product_photo']; ?>" 
@@ -1045,7 +1045,7 @@ $hero_image = $hero_image_result->fetch_assoc();
         </div>
 
         <div style="text-align: center; margin-top: 60px;">
-            <a href="/fashionhub/Customer/Products.php" class="btn btn-primary" style="display: inline-flex;">
+            <a href="/fashionhub/Collections.php" class="btn btn-primary" style="display: inline-flex;">
                 <span>View All Products</span>
                 <i class="fas fa-arrow-right"></i>
             </a>
@@ -1064,7 +1064,7 @@ $hero_image = $hero_image_result->fetch_assoc();
         <div class="categories-grid">
             <?php if ($categories_result->num_rows > 0): ?>
                 <?php while ($category = $categories_result->fetch_assoc()): ?>
-                    <div class="category-card" onclick="window.location.href='/fashionhub/Customer/Products.php?category=<?php echo $category['id']; ?>'">
+                    <div class="category-card" onclick="window.location.href='/fashionhub/Collections.php?category=<?php echo $category['id']; ?>'">
                         <?php if (!empty($category['category_photo'])): ?>
                             <img src="data:image/jpeg;base64,<?php echo $category['category_photo']; ?>" 
                                  alt="<?php echo htmlspecialchars($category['category_name']); ?>" 
@@ -1107,7 +1107,7 @@ $hero_image = $hero_image_result->fetch_assoc();
             <h2>Begin Your Style Revolution Today</h2>
             <p>Join our community of fashion-forward individuals who trust FashionHub for quality, style, and exceptional service. Your perfect wardrobe awaits.</p>
             <?php if (isset($_SESSION['user_id'])): ?>
-                <a href="/fashionhub/Customer/Products.php" class="btn-white">
+                <a href="/fashionhub/Collections.php" class="btn-white">
                     <span>Start Shopping Now</span>
                     <i class="fas fa-arrow-right"></i>
                 </a>
