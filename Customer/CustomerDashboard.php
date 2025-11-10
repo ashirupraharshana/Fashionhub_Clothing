@@ -68,7 +68,25 @@ $featured_products_query = "SELECT p.*, c.category_name,
                             LIMIT 4";
 $featured_products = $conn->query($featured_products_query);
 
-// ===== ADD YOUR IMAGE URLS HERE =====
+// Get recent feedback with admin replies
+$feedback_query = "SELECT f.*, u.fullname 
+                   FROM feedback f 
+                   LEFT JOIN users u ON f.user_id = u.id 
+                   WHERE f.admin_reply IS NOT NULL
+                   ORDER BY f.replied_at DESC 
+                   LIMIT 6";
+$feedback_result = $conn->query($feedback_query);
+
+// Get feedback statistics
+$feedback_stats_query = "SELECT 
+    COUNT(*) as total_feedbacks,
+    COUNT(CASE WHEN admin_reply IS NOT NULL THEN 1 END) as replied_feedbacks,
+    COUNT(CASE WHEN submitted_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 END) as recent_feedbacks
+    FROM feedback";
+$feedback_stats_result = $conn->query($feedback_stats_query);
+$feedback_stats = $feedback_stats_result->fetch_assoc();
+
+// ===== IMAGE URLS =====
 $hero_background = "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=1920"; 
 $user_avatar = "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200"; 
 $banner_decoration = "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800";
@@ -91,304 +109,127 @@ $empty_orders_image = "https://images.unsplash.com/photo-1607083206968-13611e3d7
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #fef5f5 0%, #fdeef0 100%);
+            background: #f5f7fa;
             padding-top: 70px;
             min-height: 100vh;
-            color: #2c3e50;
+            color: #2d3748;
         }
 
         .dashboard-container {
-            display: flex;
-            max-width: 1600px;
+            max-width: 1400px;
             margin: 0 auto;
-            padding: 30px 20px;
-            gap: 30px;
+            padding: 40px 20px;
         }
 
-        /* Sidebar with Photo */
-        .sidebar {
-            width: 320px;
-            background: white;
-            border-radius: 24px;
-            padding: 0;
-            box-shadow: 0 15px 50px rgba(0, 0, 0, 0.08);
-            height: fit-content;
-            position: sticky;
-            top: 100px;
-            overflow: hidden;
-        }
-
-        .sidebar-header {
+        /* Hero Section */
+        .hero-welcome {
             background: linear-gradient(135deg, rgba(231, 76, 60, 0.95) 0%, rgba(192, 57, 43, 0.95) 100%),
-                        url('<?php echo $banner_decoration; ?>');
-            background-size: cover;
-            background-position: center;
-            background-blend-mode: multiply;
-            padding: 45px 30px;
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .sidebar-header::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: radial-gradient(circle at top right, rgba(255,255,255,0.15) 0%, transparent 60%);
-        }
-
-        .user-avatar {
-            width: 110px;
-            height: 110px;
-            border-radius: 50%;
-            background: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 20px;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
-            border: 6px solid rgba(255, 255, 255, 0.4);
-            position: relative;
-            z-index: 1;
-            overflow: hidden;
-            background-image: url('<?php echo $user_avatar; ?>');
-            background-size: cover;
-            background-position: center;
-        }
-
-        .user-avatar-fallback {
-            font-size: 42px;
-            color: #e74c3c;
-            font-weight: 800;
-        }
-
-        .user-welcome {
-            font-size: 24px;
-            font-weight: 800;
-            color: white;
-            margin-bottom: 10px;
-            position: relative;
-            z-index: 1;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        }
-
-        .user-role {
-            font-size: 14px;
-            color: rgba(255, 255, 255, 0.95);
-            background: rgba(255, 255, 255, 0.25);
-            backdrop-filter: blur(10px);
-            padding: 8px 18px;
-            border-radius: 20px;
-            display: inline-block;
-            position: relative;
-            z-index: 1;
-            font-weight: 600;
-        }
-
-        .sidebar-menu {
-            list-style: none;
-            padding: 30px 20px;
-        }
-
-        .sidebar-menu li {
-            margin-bottom: 10px;
-        }
-
-        .sidebar-menu a {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            padding: 16px 22px;
-            color: #2c3e50;
-            text-decoration: none;
-            font-weight: 600;
-            font-size: 15px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            border-radius: 14px;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .sidebar-menu a::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 5px;
-            height: 100%;
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-            transform: scaleY(0);
-            transition: transform 0.3s;
-        }
-
-        .sidebar-menu a:hover {
-            background: linear-gradient(135deg, rgba(231, 76, 60, 0.12) 0%, rgba(192, 57, 43, 0.12) 100%);
-            transform: translateX(8px);
-        }
-
-        .sidebar-menu a:hover::before,
-        .sidebar-menu a.active::before {
-            transform: scaleY(1);
-        }
-
-        .sidebar-menu a.active {
-            background: linear-gradient(135deg, rgba(231, 76, 60, 0.18) 0%, rgba(192, 57, 43, 0.18) 100%);
-            color: #e74c3c;
-        }
-
-        .sidebar-menu a i {
-            width: 24px;
-            font-size: 20px;
-        }
-
-        /* Main Content */
-        .main-content {
-            flex: 1;
-        }
-
-        /* Hero Welcome Section with Photo */
-        .welcome-section {
-            background: linear-gradient(135deg, rgba(231, 76, 60, 0.97) 0%, rgba(192, 57, 43, 0.97) 100%),
                         url('<?php echo $hero_background; ?>');
             background-size: cover;
             background-position: center;
             background-blend-mode: multiply;
-            border-radius: 28px;
-            padding: 60px 50px;
+            border-radius: 20px;
+            padding: 80px 50px;
             color: white;
-            margin-bottom: 35px;
-            box-shadow: 0 20px 60px rgba(231, 76, 60, 0.35);
+            margin-bottom: 40px;
+            box-shadow: 0 10px 40px rgba(231, 76, 60, 0.3);
             position: relative;
             overflow: hidden;
+            min-height: 320px;
+            display: flex;
+            align-items: center;
         }
 
-        .welcome-section::before {
+        .hero-welcome::before {
             content: '';
             position: absolute;
             top: -50%;
-            right: -20%;
-            width: 600px;
-            height: 600px;
-            background: radial-gradient(circle, rgba(255,255,255,0.12) 0%, transparent 65%);
+            right: -10%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.15) 0%, transparent 70%);
             border-radius: 50%;
+            animation: heroFloat 8s ease-in-out infinite;
         }
 
-        .welcome-section::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 100px;
-            background: linear-gradient(to top, rgba(0,0,0,0.1), transparent);
+        @keyframes heroFloat {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(-30px, -30px); }
         }
 
-        .welcome-content {
+        .hero-content {
             position: relative;
             z-index: 1;
         }
 
-        .welcome-section h1 {
+        .hero-welcome h1 {
             font-size: 48px;
-            font-weight: 900;
-            margin-bottom: 15px;
-            text-shadow: 0 3px 15px rgba(0,0,0,0.2);
-            letter-spacing: -0.5px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
         }
 
-        .welcome-section p {
-            font-size: 19px;
-            opacity: 0.96;
-            max-width: 600px;
+        .hero-welcome p {
+            font-size: 20px;
+            opacity: 0.95;
+            max-width: 700px;
             line-height: 1.6;
-            text-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            text-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
         }
 
-        /* Stats Cards with Icons */
+        /* Stats Grid */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 28px;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
             margin-bottom: 40px;
         }
 
         .stat-card {
             background: white;
-            border-radius: 22px;
-            padding: 38px;
-            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.07);
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            overflow: hidden;
-            border: 1px solid rgba(231, 76, 60, 0.08);
-        }
-
-        .stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 180px;
-            height: 180px;
-            background: radial-gradient(circle, rgba(231, 76, 60, 0.06) 0%, transparent 70%);
-            border-radius: 50%;
-            transform: translate(35%, -35%);
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            transition: all 0.3s ease;
+            border-left: 4px solid #e74c3c;
         }
 
         .stat-card:hover {
-            transform: translateY(-12px);
-            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.15);
-            border-color: rgba(231, 76, 60, 0.2);
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+        }
+
+        .stat-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
         }
 
         .stat-icon {
-            width: 75px;
-            height: 75px;
-            border-radius: 20px;
+            width: 60px;
+            height: 60px;
+            background: #e74c3c;
+            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 32px;
             color: white;
-            margin-bottom: 22px;
-            position: relative;
-            z-index: 1;
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-        }
-
-        .stat-icon.orders {
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-        }
-
-        .stat-icon.cart {
-            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
-        }
-
-        .stat-icon.spent {
-            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
-        }
-
-        .stat-value {
-            font-size: 44px;
-            font-weight: 900;
-            color: #2c3e50;
-            margin-bottom: 10px;
-            position: relative;
-            z-index: 1;
-            letter-spacing: -1px;
+            font-size: 24px;
         }
 
         .stat-label {
-            font-size: 15px;
-            color: #7f8c8d;
+            font-size: 14px;
+            color: #718096;
             font-weight: 600;
-            position: relative;
-            z-index: 1;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: 700;
+            color: #2d3748;
         }
 
         /* Section Headers */
@@ -396,81 +237,77 @@ $empty_orders_image = "https://images.unsplash.com/photo-1607083206968-13611e3d7
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 28px;
+            margin-bottom: 24px;
         }
 
-        .section-header h2 {
-            font-size: 28px;
-            font-weight: 800;
-            color: #2c3e50;
+        .section-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #2d3748;
             display: flex;
             align-items: center;
-            gap: 14px;
+            gap: 10px;
         }
 
-        .section-header h2 i {
+        .section-title i {
             color: #e74c3c;
-            font-size: 26px;
         }
 
-        .view-all-btn {
-            padding: 13px 28px;
-            background: white;
-            color: #e74c3c;
-            border: 2px solid #e74c3c;
-            border-radius: 14px;
-            font-weight: 700;
-            font-size: 14px;
-            text-decoration: none;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .view-all-btn:hover {
+        .btn-primary {
+            padding: 12px 24px;
             background: #e74c3c;
             color: white;
-            transform: translateY(-3px);
-            box-shadow: 0 10px 25px rgba(231, 76, 60, 0.35);
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
         }
 
-        /* Recent Orders with Product Images */
-        .orders-section {
+        .btn-primary:hover {
+            background: #c0392b;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+        }
+
+        /* Orders Section */
+        .orders-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
             margin-bottom: 40px;
-        }
-
-        .orders-grid {
-            display: grid;
-            gap: 22px;
         }
 
         .order-card {
             background: white;
-            border-radius: 20px;
-            padding: 28px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+            border-radius: 16px;
+            padding: 24px;
             display: flex;
             align-items: center;
-            gap: 28px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            border: 1px solid rgba(231, 76, 60, 0.06);
+            gap: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            transition: all 0.3s ease;
         }
 
         .order-card:hover {
-            transform: translateX(10px);
-            box-shadow: 0 15px 45px rgba(0, 0, 0, 0.12);
-            border-color: rgba(231, 76, 60, 0.15);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+            transform: translateX(5px);
         }
 
         .order-image {
-            width: 90px;
-            height: 90px;
-            border-radius: 18px;
+            width: 80px;
+            height: 80px;
+            border-radius: 12px;
             overflow: hidden;
-            flex-shrink: 0;
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
-            background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
+            background: #f7fafc;
             display: flex;
             align-items: center;
             justify-content: center;
+            flex-shrink: 0;
         }
 
         .order-image img {
@@ -479,38 +316,35 @@ $empty_orders_image = "https://images.unsplash.com/photo-1607083206968-13611e3d7
             object-fit: cover;
         }
 
-        .order-icon {
-            font-size: 32px;
+        .order-image i {
+            font-size: 28px;
             color: #e74c3c;
         }
 
-        .order-details {
+        .order-info {
             flex: 1;
         }
 
-        .order-id {
+        .order-number {
             font-size: 12px;
-            color: #7f8c8d;
-            font-weight: 700;
+            color: #718096;
+            font-weight: 600;
             margin-bottom: 8px;
             text-transform: uppercase;
-            letter-spacing: 1px;
         }
 
-        .order-product {
-            font-size: 18px;
-            font-weight: 700;
-            color: #2c3e50;
-            margin-bottom: 10px;
-            line-height: 1.4;
+        .order-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 8px;
         }
 
         .order-meta {
             display: flex;
-            gap: 20px;
+            gap: 16px;
             font-size: 13px;
-            color: #7f8c8d;
-            font-weight: 600;
+            color: #718096;
         }
 
         .order-meta i {
@@ -519,215 +353,293 @@ $empty_orders_image = "https://images.unsplash.com/photo-1607083206968-13611e3d7
         }
 
         .order-price {
-            font-size: 24px;
-            font-weight: 900;
+            font-size: 20px;
+            font-weight: 700;
             color: #e74c3c;
-            letter-spacing: -0.5px;
         }
 
-        /* Empty State with Image */
-        .empty-state {
+        /* Products Grid */
+        .products-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .product-card {
             background: white;
-            border-radius: 22px;
-            padding: 70px 40px;
-            text-align: center;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
-            border: 2px dashed rgba(231, 76, 60, 0.2);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            transition: all 0.3s ease;
+            cursor: pointer;
         }
 
-        .empty-state-image {
-            width: 200px;
-            height: 200px;
-            margin: 0 auto 25px;
-            border-radius: 50%;
-            overflow: hidden;
-            background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
+        .product-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        }
+
+        .product-image {
+            width: 100%;
+            height: 220px;
+            background: #f7fafc;
             display: flex;
             align-items: center;
             justify-content: center;
+            position: relative;
+            overflow: hidden;
         }
 
-        .empty-state-image img {
+        .product-image img {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            opacity: 0.8;
+            transition: transform 0.5s ease;
+        }
+
+        .product-card:hover .product-image img {
+            transform: scale(1.1);
+        }
+
+        .product-image i {
+            font-size: 50px;
+            color: #cbd5e0;
+        }
+
+        .discount-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: #e74c3c;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .product-details {
+            padding: 20px;
+        }
+
+        .product-category {
+            font-size: 11px;
+            color: #e74c3c;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .product-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 12px;
+            height: 40px;
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+
+        .product-price {
+            font-size: 22px;
+            font-weight: 700;
+            color: #e74c3c;
+        }
+
+        .product-old-price {
+            font-size: 14px;
+            color: #a0aec0;
+            text-decoration: line-through;
+            margin-left: 8px;
+        }
+
+        /* Feedback Section */
+        .feedback-section {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            margin-bottom: 40px;
+        }
+
+        .feedback-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+            padding-bottom: 30px;
+            border-bottom: 2px solid #f7fafc;
+        }
+
+        .feedback-stat {
+            text-align: center;
+        }
+
+        .feedback-stat-icon {
+            width: 50px;
+            height: 50px;
+            background: #fff5f5;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 12px;
+            color: #e74c3c;
+            font-size: 22px;
+        }
+
+        .feedback-stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 4px;
+        }
+
+        .feedback-stat-label {
+            font-size: 12px;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .feedback-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .feedback-card {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .feedback-card:hover {
+            border-color: #e74c3c;
+            background: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .feedback-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .feedback-avatar {
+            width: 45px;
+            height: 45px;
+            background: #e74c3c;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .feedback-user {
+            flex: 1;
+        }
+
+        .feedback-name {
+            font-weight: 600;
+            color: #2d3748;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+
+        .feedback-date {
+            font-size: 12px;
+            color: #718096;
+        }
+
+        .feedback-message {
+            color: #4a5568;
+            line-height: 1.6;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .admin-reply {
+            background: #fff5f5;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 3px solid #e74c3c;
+            margin-top: 12px;
+        }
+
+        .admin-reply-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #e74c3c;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .admin-reply-text {
+            color: #4a5568;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         }
 
         .empty-state i {
-            font-size: 80px;
-            color: #e8e8e8;
+            font-size: 64px;
+            color: #cbd5e0;
+            margin-bottom: 16px;
         }
 
         .empty-state h3 {
-            font-size: 26px;
-            color: #2c3e50;
-            margin-bottom: 12px;
-            font-weight: 800;
+            font-size: 20px;
+            color: #2d3748;
+            margin-bottom: 8px;
         }
 
         .empty-state p {
-            color: #7f8c8d;
-            font-size: 16px;
-            margin-bottom: 25px;
-        }
-
-        .empty-state-btn {
-            display: inline-block;
-            padding: 14px 32px;
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-            color: white;
-            text-decoration: none;
-            border-radius: 14px;
-            font-weight: 700;
-            transition: all 0.3s;
-            box-shadow: 0 8px 25px rgba(231, 76, 60, 0.3);
-        }
-
-        .empty-state-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 35px rgba(231, 76, 60, 0.4);
-        }
-
-        /* Featured Products with Photos */
-        .products-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 28px;
-        }
-
-        .product-card-mini {
-            background: white;
-            border-radius: 24px;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            cursor: pointer;
-            border: 1px solid rgba(231, 76, 60, 0.06);
-        }
-
-        .product-card-mini:hover {
-            transform: translateY(-15px);
-            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.15);
-            border-color: rgba(231, 76, 60, 0.15);
-        }
-
-        .product-image-mini {
-            width: 100%;
-            height: 250px;
-            overflow: hidden;
-            background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-        }
-
-        .product-image-mini img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .product-card-mini:hover .product-image-mini img {
-            transform: scale(1.12);
-        }
-
-        .discount-badge-mini {
-            position: absolute;
-            top: 15px;
-            left: 15px;
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-            color: white;
-            padding: 10px 16px;
-            border-radius: 12px;
-            font-size: 13px;
-            font-weight: 800;
-            box-shadow: 0 6px 20px rgba(231, 76, 60, 0.4);
-            z-index: 10;
-        }
-
-        .product-info-mini {
-            padding: 26px;
-        }
-
-        .product-category-mini {
-            font-size: 11px;
-            text-transform: uppercase;
-            color: #e74c3c;
-            letter-spacing: 1.5px;
-            margin-bottom: 10px;
-            font-weight: 800;
-        }
-
-        .product-name-mini {
-            font-size: 17px;
-            font-weight: 700;
-            color: #2c3e50;
-            margin-bottom: 14px;
-            line-height: 1.5;
-            height: 51px;
-            overflow: hidden;
-        }
-
-        .product-price-mini {
-            font-size: 24px;
-            font-weight: 900;
-            color: #e74c3c;
-            letter-spacing: -0.5px;
-        }
-
-        .product-original-price-mini {
-            font-size: 15px;
-            color: #95a5a6;
-            text-decoration: line-through;
-            margin-left: 10px;
-            font-weight: 600;
+            color: #718096;
+            margin-bottom: 20px;
         }
 
         /* Responsive */
-        @media (max-width: 1200px) {
-            .dashboard-container {
-                flex-direction: column;
-            }
-
-            .sidebar {
-                width: 100%;
-                position: static;
-            }
-
-            .sidebar-header {
-                padding: 40px 30px;
-            }
-
-            .user-avatar {
-                width: 90px;
-                height: 90px;
-            }
-
-            .sidebar-menu {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 12px;
-            }
-        }
-
         @media (max-width: 768px) {
-            .welcome-section {
-                padding: 40px 30px;
+            .hero-welcome {
+                padding: 50px 30px;
+                min-height: 280px;
             }
 
-            .welcome-section h1 {
-                font-size: 36px;
+            .hero-welcome h1 {
+                font-size: 32px;
+            }
+
+            .hero-welcome p {
+                font-size: 16px;
             }
 
             .stats-grid {
                 grid-template-columns: 1fr;
             }
 
-            .products-grid {
+            .products-grid,
+            .feedback-grid {
                 grid-template-columns: 1fr;
             }
 
@@ -736,9 +648,8 @@ $empty_orders_image = "https://images.unsplash.com/photo-1607083206968-13611e3d7
                 text-align: center;
             }
 
-            .order-image {
-                width: 120px;
-                height: 120px;
+            .feedback-stats {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -747,175 +658,212 @@ $empty_orders_image = "https://images.unsplash.com/photo-1607083206968-13611e3d7
     <?php include 'Components/CustomerNavBar.php'; ?>
 
     <div class="dashboard-container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <div class="user-avatar">
-                    <!-- If user avatar image doesn't load, show initial -->
-                    <span class="user-avatar-fallback" style="display: none;">
-                        <?php echo strtoupper(substr($user['fullname'], 0, 1)); ?>
-                    </span>
-                </div>
-                <div class="user-welcome">Welcome Back!</div>
-                <div class="user-role"><?php echo htmlspecialchars($user['fullname']); ?></div>
+        <!-- Hero Welcome -->
+        <div class="hero-welcome">
+            <div class="hero-content">
+                <h1>Welcome back, <?php echo htmlspecialchars(explode(' ', $user['fullname'])[0]); ?>! 👋</h1>
+                <p>Explore the latest fashion trends and manage your shopping experience from your personal dashboard.</p>
             </div>
-            <ul class="sidebar-menu">
-                <li><a href="CustomerHome.php" class="active"><i class="fas fa-home"></i> Dashboard</a></li>
-                <li><a href="Products.php"><i class="fas fa-shopping-bag"></i> Products</a></li>
-                <li><a href="Orders.php"><i class="fas fa-box"></i> My Orders</a></li>
-                <li><a href="Cart.php"><i class="fas fa-shopping-cart"></i> Shopping Cart</a></li>
-                <li><a href="Profile.php"><i class="fas fa-user"></i> My Profile</a></li>
-                <li><a href="Settings.php"><i class="fas fa-cog"></i> Settings</a></li>
-                <li><a href="../Logout.php" style="color: #e74c3c;"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
-            </ul>
-        </aside>
+        </div>
 
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Welcome Section -->
-            <div class="welcome-section">
-                <div class="welcome-content">
-                    <h1>Hello, <?php echo htmlspecialchars(explode(' ', $user['fullname'])[0]); ?>! </h1>
-                    <p>Discover the latest fashion trends and manage your orders seamlessly. Welcome to your personalized shopping dashboard!</p>
-                </div>
-            </div>
-
-            <!-- Statistics Cards -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon orders">
+        <!-- Statistics -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-icon">
                         <i class="fas fa-box"></i>
                     </div>
-                    <div class="stat-value"><?php echo $total_orders; ?></div>
                     <div class="stat-label">Total Orders</div>
                 </div>
+                <div class="stat-value"><?php echo $total_orders; ?></div>
+            </div>
 
-                <div class="stat-card">
-                    <div class="stat-icon cart">
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-icon">
                         <i class="fas fa-shopping-cart"></i>
                     </div>
-                    <div class="stat-value"><?php echo $cart_items; ?></div>
-                    <div class="stat-label">Items in Cart</div>
+                    <div class="stat-label">Cart Items</div>
                 </div>
+                <div class="stat-value"><?php echo $cart_items; ?></div>
+            </div>
 
-                <div class="stat-card">
-                    <div class="stat-icon spent">
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-icon">
                         <i class="fas fa-wallet"></i>
                     </div>
-                    <div class="stat-value">Rs. <?php echo number_format($total_spent, 0); ?></div>
                     <div class="stat-label">Total Spent</div>
                 </div>
+                <div class="stat-value">Rs. <?php echo number_format($total_spent, 0); ?></div>
             </div>
+        </div>
 
-            <!-- Recent Orders Section -->
-            <div class="orders-section">
-                <div class="section-header">
-                    <h2><i class="fas fa-history"></i> Recent Orders</h2>
-                    <?php if ($recent_orders->num_rows > 0): ?>
-                        <a href="CustomerOrders.php" class="view-all-btn">View All Orders</a>
-                    <?php endif; ?>
-                </div>
+        <!-- Recent Orders -->
+        <div class="section-header">
+            <h2 class="section-title">
+                <i class="fas fa-history"></i>
+                Recent Orders
+            </h2>
+            <?php if ($recent_orders->num_rows > 0): ?>
+                <a href="Orders.php" class="btn-primary">
+                    View All <i class="fas fa-arrow-right"></i>
+                </a>
+            <?php endif; ?>
+        </div>
 
-                <div class="orders-grid">
-                    <?php if ($recent_orders->num_rows > 0): ?>
-                        <?php while($order = $recent_orders->fetch_assoc()): ?>
-                            <div class="order-card">
-                                <div class="order-image">
-                                    <?php if (!empty($order['product_photo'])): ?>
-                                        <img src="data:image/jpeg;base64,<?php echo $order['product_photo']; ?>" 
-                                             alt="<?php echo htmlspecialchars($order['product_name']); ?>">
-                                    <?php else: ?>
-                                        <i class="order-icon fas fa-shopping-bag"></i>
-                                    <?php endif; ?>
-                                </div>
-                                <div class="order-details">
-                                    <div class="order-id">Order #<?php echo $order['id']; ?></div>
-                                    <div class="order-product">
-                                        <?php echo htmlspecialchars($order['product_name']); ?>
-                                    </div>
-                                    <div class="order-meta">
-                                        <span><i class="fas fa-calendar"></i> <?php echo date('M d, Y', strtotime($order['order_date'])); ?></span>
-                                        <span><i class="fas fa-cube"></i> <?php echo $order['quantity']; ?> item(s)</span>
-                                    </div>
-                                </div>
-                                <div class="order-price">
-                                    Rs. <?php echo number_format($order['total_price'], 2); ?>
-                                </div>
-                            </div>
-                        <?php endwhile; ?>
-                    <?php else: ?>
-                        <div class="empty-state">
-                            <div class="empty-state-image">
-                                <img src="<?php echo $empty_orders_image; ?>" alt="No orders">
-                            </div>
-                            <h3>No Orders Yet</h3>
-                            <p>Start shopping to see your orders here!</p>
-                            <a href="Products.php" class="empty-state-btn">
-                                <i class="fas fa-shopping-bag"></i> Browse Products
-                            </a>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <!-- Featured Products Section -->
-            <div class="section-header">
-                <h2><i class="fas fa-star"></i> Latest Arrivals</h2>
-                <a href="Products.php" class="view-all-btn">Browse All Products</a>
-            </div>
-
-            <div class="products-grid">
-                <?php if ($featured_products->num_rows > 0): ?>
-                    <?php while($product = $featured_products->fetch_assoc()): ?>
-                        <div class="product-card-mini" onclick="window.location.href='Products.php'">
-                            <?php if ($product['discount'] > 0): ?>
-                                <div class="discount-badge-mini"><?php echo $product['discount']; ?>% OFF</div>
+        <div class="orders-list">
+            <?php if ($recent_orders->num_rows > 0): ?>
+                <?php while($order = $recent_orders->fetch_assoc()): ?>
+                    <div class="order-card">
+                        <div class="order-image">
+                            <?php if (!empty($order['product_photo'])): ?>
+                                <img src="data:image/jpeg;base64,<?php echo $order['product_photo']; ?>" 
+                                     alt="<?php echo htmlspecialchars($order['product_name']); ?>">
+                            <?php else: ?>
+                                <i class="fas fa-shopping-bag"></i>
                             <?php endif; ?>
-                            
-                            <div class="product-image-mini">
-                                <?php if (!empty($product['product_photo'])): ?>
-                                    <img src="data:image/jpeg;base64,<?php echo $product['product_photo']; ?>" 
-                                         alt="<?php echo htmlspecialchars($product['product_name']); ?>">
-                                <?php else: ?>
-                                    <i class="fas fa-tshirt" style="font-size: 60px; color: #e8e8e8;"></i>
-                                <?php endif; ?>
+                        </div>
+                        <div class="order-info">
+                            <div class="order-number">Order #<?php echo $order['id']; ?></div>
+                            <div class="order-title"><?php echo htmlspecialchars($order['product_name']); ?></div>
+                            <div class="order-meta">
+                                <span><i class="fas fa-calendar"></i> <?php echo date('M d, Y', strtotime($order['order_date'])); ?></span>
+                                <span><i class="fas fa-cube"></i> <?php echo $order['quantity']; ?> item(s)</span>
                             </div>
-                            
-                            <div class="product-info-mini">
-                                <div class="product-category-mini"><?php echo htmlspecialchars($product['category_name']); ?></div>
-                                <div class="product-name-mini"><?php echo htmlspecialchars($product['product_name']); ?></div>
-                                <div>
-                                    <span class="product-price-mini">Rs. <?php echo number_format($product['final_price'], 2); ?></span>
-                                    <?php if ($product['discount'] > 0): ?>
-                                        <span class="product-original-price-mini">Rs. <?php echo number_format($product['price'], 2); ?></span>
-                                    <?php endif; ?>
+                        </div>
+                        <div class="order-price">Rs. <?php echo number_format($order['total_price'], 2); ?></div>
+                    </div>
+                <?php endwhile; ?>
+            <?php else: ?>
+                <div class="empty-state">
+                    <i class="fas fa-box-open"></i>
+                    <h3>No Orders Yet</h3>
+                    <p>Start shopping to see your orders here!</p>
+                    <a href="Products.php" class="btn-primary">Browse Products</a>
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- Customer Feedback -->
+        <div class="section-header">
+            <h2 class="section-title">
+                <i class="fas fa-comments"></i>
+                Customer Feedback
+            </h2>
+            <a href="Feedback.php" class="btn-primary">
+                Share Feedback <i class="fas fa-paper-plane"></i>
+            </a>
+        </div>
+
+        <div class="feedback-section">
+            <div class="feedback-stats">
+                <div class="feedback-stat">
+                    <div class="feedback-stat-icon">
+                        <i class="fas fa-comments"></i>
+                    </div>
+                    <div class="feedback-stat-value"><?php echo $feedback_stats['total_feedbacks']; ?></div>
+                    <div class="feedback-stat-label">Total Feedback</div>
+                </div>
+                <div class="feedback-stat">
+                    <div class="feedback-stat-icon">
+                        <i class="fas fa-reply-all"></i>
+                    </div>
+                    <div class="feedback-stat-value"><?php echo $feedback_stats['replied_feedbacks']; ?></div>
+                    <div class="feedback-stat-label">Replied</div>
+                </div>
+                <div class="feedback-stat">
+                    <div class="feedback-stat-icon">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                    <div class="feedback-stat-value"><?php echo $feedback_stats['recent_feedbacks']; ?></div>
+                    <div class="feedback-stat-label">This Week</div>
+                </div>
+            </div>
+
+            <?php if ($feedback_result->num_rows > 0): ?>
+                <div class="feedback-grid">
+                    <?php while($feedback = $feedback_result->fetch_assoc()): ?>
+                        <div class="feedback-card">
+                            <div class="feedback-header">
+                                <div class="feedback-avatar">
+                                    <?php echo strtoupper(substr($feedback['name'], 0, 1)); ?>
+                                </div>
+                                <div class="feedback-user">
+                                    <div class="feedback-name"><?php echo htmlspecialchars($feedback['name']); ?></div>
+                                    <div class="feedback-date">
+                                        <i class="fas fa-calendar"></i> <?php echo date('M d, Y', strtotime($feedback['submitted_at'])); ?>
+                                    </div>
                                 </div>
                             </div>
+                            <div class="feedback-message">
+                                <?php echo nl2br(htmlspecialchars($feedback['message'])); ?>
+                            </div>
+                            <?php if (!empty($feedback['admin_reply'])): ?>
+                                <div class="admin-reply">
+                                    <div class="admin-reply-header">
+                                        <i class="fas fa-reply"></i>
+                                        Admin Response
+                                    </div>
+                                    <div class="admin-reply-text">
+                                        <?php echo nl2br(htmlspecialchars($feedback['admin_reply'])); ?>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     <?php endwhile; ?>
-                <?php endif; ?>
-            </div>
-        </main>
+                </div>
+            <?php else: ?>
+                <div class="empty-state">
+                    <i class="fas fa-comments"></i>
+                    <h3>No Feedback Yet</h3>
+                    <p>Be the first to share your thoughts!</p>
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- Latest Products -->
+        <div class="section-header">
+            <h2 class="section-title">
+                <i class="fas fa-star"></i>
+                Latest Arrivals
+            </h2>
+            <a href="Products.php" class="btn-primary">
+                View All <i class="fas fa-arrow-right"></i>
+            </a>
+        </div>
+
+        <div class="products-grid">
+            <?php if ($featured_products->num_rows > 0): ?>
+                <?php while($product = $featured_products->fetch_assoc()): ?>
+                    <div class="product-card" onclick="window.location.href='Products.php'">
+                        <div class="product-image">
+                            <?php if ($product['discount'] > 0): ?>
+                                <div class="discount-badge"><?php echo $product['discount']; ?>% OFF</div>
+                            <?php endif; ?>
+                            <?php if (!empty($product['product_photo'])): ?>
+                                <img src="data:image/jpeg;base64,<?php echo $product['product_photo']; ?>" 
+                                     alt="<?php echo htmlspecialchars($product['product_name']); ?>">
+                            <?php else: ?>
+                                <i class="fas fa-tshirt"></i>
+                            <?php endif; ?>
+                        </div>
+                        <div class="product-details">
+                            <div class="product-category"><?php echo htmlspecialchars($product['category_name']); ?></div>
+                            <div class="product-name"><?php echo htmlspecialchars($product['product_name']); ?></div>
+                            <div>
+                                <span class="product-price">Rs. <?php echo number_format($product['final_price'], 2); ?></span>
+                                <?php if ($product['discount'] > 0): ?>
+                                    <span class="product-old-price">Rs. <?php echo number_format($product['price'], 2); ?></span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                <?php endwhile; ?>
+            <?php endif; ?>
+        </div>
     </div>
 
-    <script>
-        // Handle user avatar fallback
-        document.addEventListener('DOMContentLoaded', function() {
-            const userAvatar = document.querySelector('.user-avatar');
-            const fallback = document.querySelector('.user-avatar-fallback');
-            
-            // Check if background image loaded
-            const img = new Image();
-            img.src = '<?php echo $user_avatar; ?>';
-            img.onerror = function() {
-                userAvatar.style.backgroundImage = 'none';
-                userAvatar.style.background = 'white';
-                if (fallback) {
-                    fallback.style.display = 'block';
-                }
-            };
-        });
-    </script>
-      <?php include 'Components/Footer.php'; ?>
+    <?php include 'Components/Footer.php'; ?>
 </body>
 </html>

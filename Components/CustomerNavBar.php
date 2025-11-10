@@ -519,7 +519,7 @@ if (password_verify($password, $user['password'])) {
         .sidebar-header {
             padding: 30px 25px;
             border-bottom: 2px solid #f0f0f0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             color: white;
         }
 
@@ -744,7 +744,7 @@ if (password_verify($password, $user['password'])) {
                 <span></span>
             </button>
 
-            <a href="#" class="logo">
+            <a href="/fashionhub/Homepage.php" class="logo">
                 <i class="fas fa-shopping-bag"></i>
                 <span>FashionHub</span>
             </a>
@@ -847,43 +847,11 @@ if (password_verify($password, $user['password'])) {
         </div>
 
         <ul class="sidebar-menu">
-            <li><a href="/fashionhub/Homepage.php"><i class="fas fa-home"></i> Home</a></li>
-            <li><a href="/fashionhub/Collections.php"><i class="fas fa-th-large"></i> Collections</a></li>
-            <li><a href="#men"><i class="fas fa-male"></i> Men's Fashion</a></li>
-            <li><a href="#women"><i class="fas fa-female"></i> Women's Fashion</a></li>
-            <li><a href="#accessories"><i class="fas fa-gem"></i> Accessories</a></li>
-            <li><a href="#new-arrivals"><i class="fas fa-star"></i> New Arrivals</a></li>
-            <li><a href="#sale"><i class="fas fa-tags"></i> Sale</a></li>
-            <li><a href="#about"><i class="fas fa-info-circle"></i> About Us</a></li>
-            <li><a href="#contact"><i class="fas fa-envelope"></i> Contact</a></li>
-            <li><a href="#feedback"><i class="fas fa-comment-dots"></i> Feedback</a></li>
+                     <li><a href="Homepage.php">Home</a></li>
+                <li><a href="/fashionhub/Collections.php">Collections</a></li>
+                <li><a href="/fashionhub/AboutUs.php">About</a></li>
+                <li><a href="/fashionhub/ContactUs.php">Contact</a></li>
         </ul>
-
-        <div class="sidebar-section">
-            <h4>Newsletter</h4>
-            <form class="newsletter-form">
-                <input type="email" placeholder="Enter your email" required>
-                <button type="submit">Subscribe</button>
-            </form>
-        </div>
-
-        <div class="sidebar-section">
-            <h4>Follow Us</h4>
-            <div class="social-links">
-                <a href="#facebook" title="Facebook">
-                    <i class="fab fa-facebook-f"></i>
-                </a>
-                <a href="#instagram" title="Instagram">
-                    <i class="fab fa-instagram"></i>
-                </a>
-                <a href="#twitter" title="Twitter">
-                    <i class="fab fa-twitter"></i>
-                </a>
-                <a href="#pinterest" title="Pinterest">
-                    <i class="fab fa-pinterest-p"></i>
-                </a>
-            </div>
-        </div>
     </aside>
 
     <!-- Overlay -->
