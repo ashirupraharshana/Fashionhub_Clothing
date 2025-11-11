@@ -2,8 +2,74 @@
 include '../db_connect.php';
 session_start();
 
-// Increase MySQL max_allowed_packet
-$conn->query("SET GLOBAL max_allowed_packet=67108864"); // 64MB
+// Handle AJAX requests for product sizes
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_sizes' && isset($_GET['id'])) {
+    header('Content-Type: application/json');
+    $product_id = intval($_GET['id']);
+    
+    $stmt = $conn->prepare("SELECT id, size, quantity, price, discount FROM product_sizes WHERE product_id = ?");
+    $stmt->bind_param("i", $product_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    $sizes = [];
+    while ($row = $result->fetch_assoc()) {
+        $sizes[] = $row;
+    }
+    
+    echo json_encode($sizes);
+    $stmt->close();
+    exit;
+}
+
+// Handle AJAX requests for product details
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_details' && isset($_GET['id'])) {
+    header('Content-Type: application/json');
+    $product_id = intval($_GET['id']);
+    
+    $stmt = $conn->prepare("SELECT p.*, c.category_name, s.subcategory_name 
+              FROM products p 
+              LEFT JOIN categories c ON p.category_id = c.id 
+              LEFT JOIN subcategories s ON p.subcategory_id = s.id
+              WHERE p.id = ?");
+    $stmt->bind_param("i", $product_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($result->num_rows > 0) {
+        $product = $result->fetch_assoc();
+        
+        // Get photos with size information
+        $photosStmt = $conn->prepare("SELECT photo, size_id FROM photos WHERE product_id = ?");
+        $photosStmt->bind_param("i", $product_id);
+        $photosStmt->execute();
+        $photosResult = $photosStmt->get_result();
+        $photos = [];
+        while ($photo = $photosResult->fetch_assoc()) {
+            $photos[] = $photo;
+        }
+        $product['photos'] = $photos;
+        $photosStmt->close();
+        
+        // Get sizes
+        $sizesStmt = $conn->prepare("SELECT id, size, quantity, price, discount FROM product_sizes WHERE product_id = ?");
+        $sizesStmt->bind_param("i", $product_id);
+        $sizesStmt->execute();
+        $sizesResult = $sizesStmt->get_result();
+        $sizes = [];
+        while ($size = $sizesResult->fetch_assoc()) {
+            $sizes[] = $size;
+        }
+        $product['sizes'] = $sizes;
+        $sizesStmt->close();
+        
+        echo json_encode($product);
+    } else {
+        echo json_encode(['error' => 'Product not found']);
+    }
+    $stmt->close();
+    exit;
+}
 
 // Function to compress and resize image
 function compressImage($source, $quality = 75, $maxWidth = 800, $maxHeight = 800) {
@@ -73,49 +139,79 @@ function compressImage($source, $quality = 75, $maxWidth = 800, $maxHeight = 800
 // Handle Add Product
 if (isset($_POST['add_product'])) {
     $category_id = intval($_POST['category_id']);
-    $product_name = $_POST['product_name'];
-    $description = $_POST['description'];
+    $subcategory_id = !empty($_POST['subcategory_id']) ? intval($_POST['subcategory_id']) : NULL;
+    $product_name = trim($_POST['product_name']);
+    $description = trim($_POST['description']);
     $price = floatval($_POST['price']);
-    $discount = floatval($_POST['discount']);
-    $stock_quantity = intval($_POST['stock_quantity']);
-    $gender = isset($_POST['gender']) && $_POST['gender'] !== '' ? intval($_POST['gender']) : null;
-    $size = isset($_POST['size']) && $_POST['size'] !== '' ? $_POST['size'] : null;
-    $photo_base64 = null;
+    $gender = isset($_POST['gender']) ? intval($_POST['gender']) : 0;
 
-    if (isset($_FILES['product_photo']) && $_FILES['product_photo']['error'] == 0) {
-        if ($_FILES['product_photo']['size'] > 5242880) {
-            $_SESSION['error'] = "Image file size should not exceed 5MB";
-            header("Location: ManageProducts.php");
-            exit;
-        }
-        
-        if (!extension_loaded('gd')) {
-            $imageData = file_get_contents($_FILES['product_photo']['tmp_name']);
-            $photo_base64 = base64_encode($imageData);
-        } else {
-            $compressedImage = compressImage($_FILES['product_photo']['tmp_name'], 75, 800, 800);
-            
-            if ($compressedImage) {
-                $photo_base64 = base64_encode($compressedImage);
-            } else {
-                $_SESSION['error'] = "Failed to process image. Please use JPG, PNG, or GIF format.";
-                header("Location: ManageProducts.php");
-                exit;
+    $stmt = $conn->prepare("INSERT INTO products (category_id, subcategory_id, product_name, description, price, gender) VALUES (?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("iissdi", $category_id, $subcategory_id, $product_name, $description, $price, $gender);
+
+    if ($stmt->execute()) {
+        $product_id = $stmt->insert_id;
+
+        // Insert product_sizes and handle size-specific photos
+        if (!empty($_POST['sizes']) && is_array($_POST['sizes'])) {
+            foreach ($_POST['sizes'] as $i => $size) {
+                $size = trim($size);
+                $quantity = isset($_POST['quantities'][$i]) ? intval($_POST['quantities'][$i]) : 0;
+                $size_price = isset($_POST['size_prices'][$i]) ? floatval($_POST['size_prices'][$i]) : 0;
+                $discount = isset($_POST['discounts'][$i]) ? floatval($_POST['discounts'][$i]) : 0;
+
+                // Insert size
+                $stmt2 = $conn->prepare("INSERT INTO product_sizes (product_id, size, quantity, price, discount) VALUES (?, ?, ?, ?, ?)");
+                $stmt2->bind_param("isidd", $product_id, $size, $quantity, $size_price, $discount);
+                $stmt2->execute();
+                $size_id = $stmt2->insert_id;
+                $stmt2->close();
+
+                // Handle photos for this size
+                if (isset($_FILES['size_photos']['tmp_name'][$i]) && is_array($_FILES['size_photos']['tmp_name'][$i])) {
+                    foreach ($_FILES['size_photos']['tmp_name'][$i] as $key => $tmp_name) {
+                        if ($_FILES['size_photos']['error'][$i][$key] === 0) {
+                            if ($_FILES['size_photos']['size'][$i][$key] > 5242880) {
+                                continue;
+                            }
+                            
+                            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                            $mime = finfo_file($finfo, $tmp_name);
+                            finfo_close($finfo);
+                            
+                            $allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+                            if (!in_array($mime, $allowed_types)) {
+                                continue;
+                            }
+                            
+                            if (extension_loaded('gd')) {
+                                $compressedImage = compressImage($tmp_name, 75, 800, 800);
+                                if ($compressedImage) {
+                                    $base64Image = base64_encode($compressedImage);
+                                } else {
+                                    $imageData = file_get_contents($tmp_name);
+                                    $base64Image = base64_encode($imageData);
+                                }
+                            } else {
+                                $imageData = file_get_contents($tmp_name);
+                                $base64Image = base64_encode($imageData);
+                            }
+
+                            $stmt3 = $conn->prepare("INSERT INTO photos (product_id, size_id, photo) VALUES (?, ?, ?)");
+                            $stmt3->bind_param("iis", $product_id, $size_id, $base64Image);
+                            $stmt3->execute();
+                            $stmt3->close();
+                        }
+                    }
+                }
             }
         }
-    }
 
-    $sql = "INSERT INTO products (category_id, product_name, description, price, discount, stock_quantity, gender, size, product_photo)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("issddisss", $category_id, $product_name, $description, $price, $discount, $stock_quantity, $gender, $size, $photo_base64);
-    
-    if ($stmt->execute()) {
-        $_SESSION['success'] = "Product added successfully!";
+        $_SESSION['success'] = "✅ Product, sizes, and size-specific photos added successfully!";
     } else {
         $_SESSION['error'] = "Failed to add product: " . $conn->error;
     }
     
+    $stmt->close();
     header("Location: ManageProducts.php");
     exit;
 }
@@ -123,11 +219,26 @@ if (isset($_POST['add_product'])) {
 // Handle Delete Product
 if (isset($_GET['delete'])) {
     $id = intval($_GET['delete']);
-    if ($conn->query("DELETE FROM products WHERE id = $id")) {
+    
+    $stmt1 = $conn->prepare("DELETE FROM photos WHERE product_id = ?");
+    $stmt1->bind_param("i", $id);
+    $stmt1->execute();
+    $stmt1->close();
+    
+    $stmt2 = $conn->prepare("DELETE FROM product_sizes WHERE product_id = ?");
+    $stmt2->bind_param("i", $id);
+    $stmt2->execute();
+    $stmt2->close();
+    
+    $stmt3 = $conn->prepare("DELETE FROM products WHERE id = ?");
+    $stmt3->bind_param("i", $id);
+    if ($stmt3->execute()) {
         $_SESSION['success'] = "Product deleted successfully!";
     } else {
         $_SESSION['error'] = "Failed to delete product.";
     }
+    $stmt3->close();
+    
     header("Location: ManageProducts.php");
     exit;
 }
@@ -136,97 +247,107 @@ if (isset($_GET['delete'])) {
 if (isset($_POST['edit_product'])) {
     $id = intval($_POST['product_id']);
     $category_id = intval($_POST['edit_category_id']);
-    $product_name = $conn->real_escape_string($_POST['edit_product_name']);
-    $description = $conn->real_escape_string($_POST['edit_description']);
+    $subcategory_id = !empty($_POST['edit_subcategory_id']) ? intval($_POST['edit_subcategory_id']) : NULL;
+    $product_name = trim($_POST['edit_product_name']);
+    $description = trim($_POST['edit_description']);
     $price = floatval($_POST['edit_price']);
-    $discount = floatval($_POST['edit_discount']);
-    $stock_quantity = intval($_POST['edit_stock_quantity']);
-    $gender = isset($_POST['edit_gender']) && $_POST['edit_gender'] !== '' ? intval($_POST['edit_gender']) : null;
-    $size = isset($_POST['edit_size']) && $_POST['edit_size'] !== '' ? $conn->real_escape_string($_POST['edit_size']) : null;
+    $gender = intval($_POST['edit_gender']);
 
-    $photo_update = "";
-    if (isset($_FILES['edit_product_photo']) && $_FILES['edit_product_photo']['error'] == 0) {
-        if ($_FILES['edit_product_photo']['size'] > 5242880) {
-            $_SESSION['error'] = "Image file size should not exceed 5MB";
-            header("Location: ManageProducts.php");
-            exit;
-        }
-        
-        if (!extension_loaded('gd')) {
-            $imageData = file_get_contents($_FILES['edit_product_photo']['tmp_name']);
-            $photo_base64 = base64_encode($imageData);
-            $photo_update = ", product_photo = '$photo_base64'";
-        } else {
-            $compressedImage = compressImage($_FILES['edit_product_photo']['tmp_name'], 75, 800, 800);
+    $stmt = $conn->prepare("UPDATE products SET category_id = ?, subcategory_id = ?, product_name = ?, description = ?, price = ?, gender = ? WHERE id = ?");
+    $stmt->bind_param("iissdii", $category_id, $subcategory_id, $product_name, $description, $price, $gender, $id);
+    
+    if ($stmt->execute()) {
+        if (!empty($_POST['edit_sizes']) && is_array($_POST['edit_sizes'])) {
+            $deleteStmt = $conn->prepare("DELETE FROM product_sizes WHERE product_id = ?");
+            $deleteStmt->bind_param("i", $id);
+            $deleteStmt->execute();
+            $deleteStmt->close();
             
-            if ($compressedImage) {
-                $photo_base64 = base64_encode($compressedImage);
-                $photo_update = ", product_photo = '$photo_base64'";
+            foreach ($_POST['edit_sizes'] as $i => $size) {
+                $size = trim($size);
+                $quantity = isset($_POST['edit_quantities'][$i]) ? intval($_POST['edit_quantities'][$i]) : 0;
+                $size_price = isset($_POST['edit_size_prices'][$i]) ? floatval($_POST['edit_size_prices'][$i]) : 0;
+                $discount = isset($_POST['edit_discounts'][$i]) ? floatval($_POST['edit_discounts'][$i]) : 0;
+
+                $stmt2 = $conn->prepare("INSERT INTO product_sizes (product_id, size, quantity, price, discount) VALUES (?, ?, ?, ?, ?)");
+                $stmt2->bind_param("isidd", $id, $size, $quantity, $size_price, $discount);
+                $stmt2->execute();
+                $size_id = $stmt2->insert_id;
+                $stmt2->close();
+
+                if (isset($_FILES['edit_size_photos']['tmp_name'][$i]) && is_array($_FILES['edit_size_photos']['tmp_name'][$i])) {
+                    foreach ($_FILES['edit_size_photos']['tmp_name'][$i] as $key => $tmp_name) {
+                        if ($_FILES['edit_size_photos']['error'][$i][$key] === 0) {
+                            if ($_FILES['edit_size_photos']['size'][$i][$key] > 5242880) {
+                                continue;
+                            }
+                            
+                            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                            $mime = finfo_file($finfo, $tmp_name);
+                            finfo_close($finfo);
+                            
+                            $allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+                            if (!in_array($mime, $allowed_types)) {
+                                continue;
+                            }
+                            
+                            if (extension_loaded('gd')) {
+                                $compressedImage = compressImage($tmp_name, 75, 800, 800);
+                                if ($compressedImage) {
+                                    $base64Image = base64_encode($compressedImage);
+                                } else {
+                                    $imageData = file_get_contents($tmp_name);
+                                    $base64Image = base64_encode($imageData);
+                                }
+                            } else {
+                                $imageData = file_get_contents($tmp_name);
+                                $base64Image = base64_encode($imageData);
+                            }
+
+                            $stmt3 = $conn->prepare("INSERT INTO photos (product_id, size_id, photo) VALUES (?, ?, ?)");
+                            $stmt3->bind_param("iis", $id, $size_id, $base64Image);
+                            $stmt3->execute();
+                            $stmt3->close();
+                        }
+                    }
+                }
             }
         }
-    }
 
-    $gender_value = $gender !== null ? $gender : 'NULL';
-    $size_value = $size !== null ? "'$size'" : 'NULL';
-
-    if ($conn->query("UPDATE products 
-                      SET category_id = $category_id, 
-                          product_name = '$product_name', 
-                          description = '$description',
-                          price = $price,
-                          discount = $discount,
-                          stock_quantity = $stock_quantity,
-                          gender = $gender_value,
-                          size = $size_value
-                          $photo_update 
-                      WHERE id = $id")) {
         $_SESSION['success'] = "Product updated successfully!";
     } else {
         $_SESSION['error'] = "Failed to update product: " . $conn->error;
     }
     
+    $stmt->close();
     header("Location: ManageProducts.php");
     exit;
 }
 
-// Get categories for dropdown
-$categories = $conn->query("SELECT id, category_name FROM categories ORDER BY category_name ASC");
-
-// Handle Search and Filter
+// Handle Search
 $search = "";
-$category_filter = "";
-$gender_filter = "";
-$size_filter = "";
-$where_conditions = [];
-
-if (isset($_GET['search']) && !empty($_GET['search'])) {
-    $search = $conn->real_escape_string($_GET['search']);
-    $where_conditions[] = "(p.product_name LIKE '%$search%' OR p.description LIKE '%$search%')";
+if (isset($_GET['search'])) {
+    $search = trim($_GET['search']);
+    $searchParam = "%$search%";
+    $stmt = $conn->prepare("SELECT p.*, c.category_name, s.subcategory_name 
+              FROM products p 
+              LEFT JOIN categories c ON p.category_id = c.id 
+              LEFT JOIN subcategories s ON p.subcategory_id = s.id
+              WHERE p.product_name LIKE ? OR p.description LIKE ? OR c.category_name LIKE ?
+              ORDER BY p.id DESC");
+    $stmt->bind_param("sss", $searchParam, $searchParam, $searchParam);
+    $stmt->execute();
+    $result = $stmt->get_result();
+} else {
+    $result = $conn->query("SELECT p.*, c.category_name, s.subcategory_name 
+              FROM products p 
+              LEFT JOIN categories c ON p.category_id = c.id 
+              LEFT JOIN subcategories s ON p.subcategory_id = s.id
+              ORDER BY p.id DESC");
 }
 
-if (isset($_GET['category']) && !empty($_GET['category'])) {
-    $category_filter = intval($_GET['category']);
-    $where_conditions[] = "p.category_id = $category_filter";
-}
-
-if (isset($_GET['gender']) && $_GET['gender'] !== '') {
-    $gender_filter = intval($_GET['gender']);
-    $where_conditions[] = "p.gender = $gender_filter";
-}
-
-if (isset($_GET['size']) && !empty($_GET['size'])) {
-    $size_filter = $conn->real_escape_string($_GET['size']);
-    $where_conditions[] = "p.size = '$size_filter'";
-}
-
-$where_clause = !empty($where_conditions) ? "WHERE " . implode(" AND ", $where_conditions) : "";
-
-$query = "SELECT p.*, c.category_name 
-          FROM products p 
-          LEFT JOIN categories c ON p.category_id = c.id 
-          $where_clause
-          ORDER BY p.id DESC";
-$result = $conn->query($query);
+$categories = $conn->query("SELECT id, category_name FROM categories");
+$subcategories = $conn->query("SELECT id, subcategory_name FROM subcategories");
 ?>
 
 <!DOCTYPE html>
@@ -237,7 +358,7 @@ $result = $conn->query($query);
     <title>Manage Products | FashionHub</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-  * {
+        * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
@@ -269,8 +390,8 @@ $result = $conn->query($query);
             gap: 10px;
             animation: slideDown 0.3s ease;
             position: fixed;
-            top: 80px;
-            right: 20px;
+            top: 10px;
+            right: 10px;
             z-index: 1000;
             max-width: 400px;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
@@ -358,17 +479,10 @@ $result = $conn->query($query);
             flex-wrap: wrap;
         }
 
-        .search-filter-group {
-            display: flex;
-            gap: 15px;
-            flex: 1;
-            min-width: 300px;
-            flex-wrap: wrap;
-        }
-
         .search-box {
             flex: 1;
-            min-width: 250px;
+            min-width: 300px;
+            max-width: 500px;
             position: relative;
         }
 
@@ -405,22 +519,6 @@ $result = $conn->query($query);
             background: #5568d3;
         }
 
-        .filter-select {
-            padding: 12px 20px;
-            border: 2px solid #e9ecef;
-            border-radius: 25px;
-            font-size: 14px;
-            cursor: pointer;
-            background: white;
-            transition: all 0.3s ease;
-            min-width: 180px;
-        }
-
-        .filter-select:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
         .add-product-btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -435,7 +533,6 @@ $result = $conn->query($query);
             gap: 8px;
             transition: all 0.3s ease;
             box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-            white-space: nowrap;
         }
 
         .add-product-btn:hover {
@@ -445,7 +542,7 @@ $result = $conn->query($query);
 
         .product-gallery {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 25px;
             margin-top: 30px;
         }
@@ -457,7 +554,6 @@ $result = $conn->query($query);
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
             transition: all 0.3s ease;
             cursor: pointer;
-            position: relative;
         }
 
         .product-card:hover {
@@ -465,57 +561,14 @@ $result = $conn->query($query);
             box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
         }
 
-        .stock-badge {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 600;
-            z-index: 1;
-            text-transform: uppercase;
-        }
-
-        .stock-badge.in-stock {
-            background: rgba(40, 167, 69, 0.9);
-            color: white;
-        }
-
-        .stock-badge.low-stock {
-            background: rgba(255, 193, 7, 0.9);
-            color: #333;
-        }
-
-        .stock-badge.out-of-stock {
-            background: rgba(220, 53, 69, 0.9);
-            color: white;
-        }
-
-        .discount-badge {
-            position: absolute;
-            top: 15px;
-            left: 15px;
-            background: rgba(220, 53, 69, 0.9);
-            color: white;
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            z-index: 1;
-        }
-
         .product-image {
             width: 100%;
-            height: 200px;
-            object-fit: cover;
+            height: 250px;
+            position: relative;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-size: 48px;
-            position: relative;
             overflow: hidden;
         }
 
@@ -523,14 +576,23 @@ $result = $conn->query($query);
             width: 100%;
             height: 100%;
             object-fit: cover;
-            position: absolute;
-            top: 0;
-            left: 0;
         }
 
         .product-image i {
-            position: relative;
-            z-index: 1;
+            color: white;
+            font-size: 48px;
+        }
+
+        .product-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #667eea;
         }
 
         .product-info {
@@ -539,10 +601,10 @@ $result = $conn->query($query);
 
         .product-category {
             font-size: 12px;
-            color: #667eea;
-            font-weight: 600;
-            text-transform: uppercase;
+            color: #999;
             margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .product-name {
@@ -563,28 +625,10 @@ $result = $conn->query($query);
             overflow: hidden;
         }
 
-        .product-price-section {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
         .product-price {
             font-size: 24px;
             font-weight: 700;
             color: #667eea;
-        }
-
-        .product-original-price {
-            font-size: 16px;
-            color: #999;
-            text-decoration: line-through;
-        }
-
-        .product-stock {
-            font-size: 13px;
-            color: #666;
             margin-bottom: 15px;
         }
 
@@ -596,9 +640,12 @@ $result = $conn->query($query);
             border-top: 1px solid #f0f0f0;
         }
 
-        .product-date {
+        .product-gender {
             font-size: 12px;
-            color: #999;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: #f0f0f0;
+            color: #666;
         }
 
         .product-actions {
@@ -614,6 +661,14 @@ $result = $conn->query($query);
             padding: 5px 10px;
             border-radius: 5px;
             transition: all 0.3s ease;
+        }
+
+        .view-btn {
+            color: #28a745;
+        }
+
+        .view-btn:hover {
+            background: rgba(40, 167, 69, 0.1);
         }
 
         .edit-btn {
@@ -644,6 +699,7 @@ $result = $conn->query($query);
             justify-content: center;
             align-items: center;
             padding: 20px;
+            overflow-y: auto;
         }
 
         .modal.active {
@@ -655,7 +711,7 @@ $result = $conn->query($query);
             padding: 30px;
             border-radius: 15px;
             width: 100%;
-            max-width: 600px;
+            max-width: 850px;
             max-height: 90vh;
             overflow-y: auto;
             position: relative;
@@ -688,8 +744,19 @@ $result = $conn->query($query);
             color: #333;
         }
 
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
         .form-group {
             margin-bottom: 20px;
+        }
+
+        .form-group.full-width {
+            grid-column: 1 / -1;
         }
 
         .form-group label {
@@ -724,47 +791,146 @@ $result = $conn->query($query);
             min-height: 100px;
         }
 
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
+        .sizes-section {
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: #fafbfc;
         }
 
-        .file-input-wrapper {
-            position: relative;
-            overflow: hidden;
-            display: inline-block;
+        .sizes-section h4 {
+            color: #333;
+            font-size: 18px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sizes-container-wrapper {
+            max-height: 500px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding-right: 5px;
+            margin-bottom: 15px;
+        }
+
+        .sizes-container-wrapper::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .sizes-container-wrapper::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        .sizes-container-wrapper::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 10px;
+        }
+
+        .sizes-container-wrapper::-webkit-scrollbar-thumb:hover {
+            background: #5568d3;
+        }
+
+        .size-row {
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .size-row:hover {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .size-input-group {
+            margin-bottom: 12px;
+        }
+
+        .size-input-group label {
+            display: block;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+
+        .size-row input[type="text"],
+        .size-row input[type="number"] {
             width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            background: white;
         }
 
-        .file-input-wrapper input[type=file] {
-            position: absolute;
-            left: -9999px;
+        .size-row input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            border: 2px dashed #e9ecef;
+            border-radius: 6px;
+            font-size: 13px;
+            background: #f8f9fa;
+            cursor: pointer;
         }
 
-        .file-input-label {
+        .size-row input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .remove-size-btn {
+            background: #ff4757;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.3s ease;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            justify-content: center;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .remove-size-btn:hover {
+            background: #ff3838;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255, 71, 87, 0.3);
+        }
+
+        .add-size-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
-            padding: 12px;
-            border: 2px dashed #e9ecef;
-            border-radius: 8px;
-            cursor: pointer;
+            gap: 8px;
             transition: all 0.3s ease;
-            background: #f8f9fa;
-            color: #666;
+            width: 100%;
         }
 
-        .file-input-label:hover {
-            border-color: #667eea;
-            background: rgba(102, 126, 234, 0.05);
-        }
-
-        .file-info {
-            font-size: 12px;
-            color: #999;
-            margin-top: 5px;
+        .add-size-btn:hover {
+            background: #218838;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
         }
 
         .modal-actions {
@@ -822,17 +988,66 @@ $result = $conn->query($query);
             color: #666;
         }
 
+        .view-modal .product-gallery-view {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .view-modal .product-gallery-view img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .view-modal .product-gallery-view img:hover {
+            transform: scale(1.05);
+        }
+
+        .view-modal .info-row {
+            display: flex;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .view-modal .info-label {
+            font-weight: 600;
+            color: #333;
+            width: 150px;
+        }
+
+        .view-modal .info-value {
+            color: #666;
+            flex: 1;
+        }
+
+        .view-modal .sizes-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .view-modal .sizes-table th,
+        .view-modal .sizes-table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .view-modal .sizes-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+
         @media (max-width: 768px) {
             .main-content {
                 margin-left: 0;
                 padding: 20px 15px;
-            }
-
-            .alert {
-                top: 10px;
-                right: 10px;
-                left: 10px;
-                max-width: calc(100% - 20px);
             }
 
             .product-gallery {
@@ -845,13 +1060,7 @@ $result = $conn->query($query);
                 align-items: stretch;
             }
 
-            .search-filter-group {
-                flex-direction: column;
-                width: 100%;
-            }
-
-            .search-box,
-            .filter-select {
+            .search-box {
                 min-width: 100%;
             }
 
@@ -863,6 +1072,27 @@ $result = $conn->query($query);
             .form-row {
                 grid-template-columns: 1fr;
             }
+
+            .alert {
+                top: 10px;
+                right: 10px;
+                left: 10px;
+                max-width: calc(100% - 20px);
+            }
+
+            .modal-content {
+                padding: 20px;
+                max-width: 95%;
+            }
+
+            .modal-header h3 {
+                font-size: 20px;
+            }
+
+            .close-modal {
+                top: 15px;
+                right: 15px;
+            }
         }
     </style>
 </head>
@@ -873,7 +1103,7 @@ $result = $conn->query($query);
         <?php if (isset($_SESSION['success'])): ?>
             <div class="alert alert-success">
                 <i class="fas fa-check-circle"></i>
-                <span><?php echo $_SESSION['success']; unset($_SESSION['success']); ?></span>
+                <span><?php echo htmlspecialchars($_SESSION['success']); unset($_SESSION['success']); ?></span>
                 <button class="alert-close">×</button>
             </div>
         <?php endif; ?>
@@ -881,7 +1111,7 @@ $result = $conn->query($query);
         <?php if (isset($_SESSION['error'])): ?>
             <div class="alert alert-error">
                 <i class="fas fa-exclamation-circle"></i>
-                <span><?php echo $_SESSION['error']; unset($_SESSION['error']); ?></span>
+                <span><?php echo htmlspecialchars($_SESSION['error']); unset($_SESSION['error']); ?></span>
                 <button class="alert-close">×</button>
             </div>
         <?php endif; ?>
@@ -894,36 +1124,10 @@ $result = $conn->query($query);
         </div>
 
         <div class="toolbar">
-            <div class="search-filter-group">
-                <div class="search-box">
-                    <form method="GET" action="ManageProducts.php" id="searchForm">
-                        <input type="text" name="search" placeholder="Search products..." value="<?php echo htmlspecialchars($search); ?>">
-                        <input type="hidden" name="category" value="<?php echo htmlspecialchars($category_filter); ?>">
-                        <input type="hidden" name="gender" value="<?php echo htmlspecialchars($gender_filter); ?>">
-                        <input type="hidden" name="size" value="<?php echo htmlspecialchars($size_filter); ?>">
-                        <button type="submit"><i class="fas fa-search"></i></button>
-                    </form>
-                </div>
-                <form method="GET" action="ManageProducts.php" id="filterForm" style="display: contents;">
-                    <input type="hidden" name="search" value="<?php echo htmlspecialchars($search); ?>">
-                    
-                    <select name="gender" class="filter-select" onchange="this.form.submit()">
-                        <option value="">All Genders</option>
-                        <option value="0" <?php echo $gender_filter === '0' || $gender_filter === 0 ? 'selected' : ''; ?>>Men</option>
-                        <option value="1" <?php echo $gender_filter === '1' || $gender_filter === 1 ? 'selected' : ''; ?>>Women</option>
-                    </select>
-
-                    <select name="size" class="filter-select" onchange="this.form.submit()">
-                        <option value="">All Sizes</option>
-                        <option value="S" <?php echo $size_filter == 'S' ? 'selected' : ''; ?>>S</option>
-                        <option value="M" <?php echo $size_filter == 'M' ? 'selected' : ''; ?>>M</option>
-                        <option value="L" <?php echo $size_filter == 'L' ? 'selected' : ''; ?>>L</option>
-                        <option value="XL" <?php echo $size_filter == 'XL' ? 'selected' : ''; ?>>XL</option>
-                        <option value="XXL" <?php echo $size_filter == 'XXL' ? 'selected' : ''; ?>>XXL</option>
-                        <option value="XXXL" <?php echo $size_filter == 'XXXL' ? 'selected' : ''; ?>>XXXL</option>
-                    </select>
-
-                    <input type="hidden" name="category" value="<?php echo htmlspecialchars($category_filter); ?>">
+            <div class="search-box">
+                <form method="GET" action="ManageProducts.php">
+                    <input type="text" name="search" placeholder="Search products..." value="<?php echo htmlspecialchars($search); ?>">
+                    <button type="submit"><i class="fas fa-search"></i></button>
                 </form>
             </div>
             <button class="add-product-btn" onclick="openAddModal()">
@@ -933,84 +1137,44 @@ $result = $conn->query($query);
 
         <div class="product-gallery">
             <?php if ($result->num_rows > 0): ?>
-                <?php while ($row = $result->fetch_assoc()): ?>
-                    <?php 
-                    $stock_status = '';
-                    $stock_class = '';
-                    if ($row['stock_quantity'] == 0) {
-                        $stock_status = 'Out of Stock';
-                        $stock_class = 'out-of-stock';
-                    } elseif ($row['stock_quantity'] <= 10) {
-                        $stock_status = 'Low Stock';
-                        $stock_class = 'low-stock';
-                    } else {
-                        $stock_status = 'In Stock';
-                        $stock_class = 'in-stock';
-                    }
+                <?php while ($row = $result->fetch_assoc()): 
+                    $photoStmt = $conn->prepare("SELECT photo FROM photos WHERE product_id = ? LIMIT 1");
+                    $photoStmt->bind_param("i", $row['id']);
+                    $photoStmt->execute();
+                    $photoResult = $photoStmt->get_result();
+                    $photo = $photoResult->fetch_assoc();
+                    $photoStmt->close();
                     
-                    $final_price = $row['price'] - ($row['price'] * $row['discount'] / 100);
-                    ?>
+                    $genderLabels = ['Unisex', 'Male', 'Female'];
+                    $genderLabel = $genderLabels[$row['gender']] ?? 'Unisex';
+                ?>
                     <div class="product-card">
-                        <?php if ($row['discount'] > 0): ?>
-                            <div class="discount-badge"><?php echo $row['discount']; ?>% OFF</div>
-                        <?php endif; ?>
-                        
-                       
-                        
-                        <div class="stock-badge <?php echo $stock_class; ?>"><?php echo $stock_status; ?></div>
-                        
                         <div class="product-image">
-                            <?php if (!empty($row['product_photo'])): ?>
-                                <img src="data:image/jpeg;base64,<?php echo $row['product_photo']; ?>" 
+                            <?php if ($photo && !empty($photo['photo'])): ?>
+                                <img src="data:image/jpeg;base64,<?php echo $photo['photo']; ?>" 
                                      alt="<?php echo htmlspecialchars($row['product_name']); ?>"
                                      onerror="this.style.display='none'; this.parentElement.querySelector('i').style.display='block';">
                                 <i class="fas fa-box" style="display: none;"></i>
                             <?php else: ?>
                                 <i class="fas fa-box"></i>
                             <?php endif; ?>
+                            <span class="product-badge"><?php echo htmlspecialchars($row['category_name']); ?></span>
                         </div>
-                        
                         <div class="product-info">
-                            <div class="product-category"><?php echo htmlspecialchars($row['category_name']); ?></div>
+                            <div class="product-category">
+                                <?php echo htmlspecialchars($row['subcategory_name'] ?: 'General'); ?>
+                            </div>
                             <div class="product-name"><?php echo htmlspecialchars($row['product_name']); ?></div>
                             <div class="product-description">
                                 <?php echo htmlspecialchars($row['description'] ?: 'No description available'); ?>
                             </div>
-                            
-                            <?php if ($row['gender'] !== null || $row['size'] !== null): ?>
-                            <div class="product-attributes">
-                                <?php if ($row['gender'] !== null): ?>
-                                <span class="attribute-tag">
-                                    <i class="fas fa-venus-mars"></i>
-                                    <?php echo $row['gender'] == 0 ? 'Men' : 'Women'; ?>
-                                </span>
-                                <?php endif; ?>
-                                
-                                <?php if ($row['size'] !== null): ?>
-                                <span class="attribute-tag">
-                                    <i class="fas fa-ruler"></i>
-                                    <?php echo htmlspecialchars($row['size']); ?>
-                                </span>
-                                <?php endif; ?>
-                            </div>
-                            <?php endif; ?>
-                            
-                            <div class="product-price-section">
-                                <div class="product-price">Rs.<?php echo number_format($final_price, 2); ?></div>
-                                <?php if ($row['discount'] > 0): ?>
-                                    <div class="product-original-price">Rs.<?php echo number_format($row['price'], 2); ?></div>
-                                <?php endif; ?>
-                            </div>
-                            
-                            <div class="product-stock">
-                                <i class="fas fa-cube"></i> Stock: <?php echo $row['stock_quantity']; ?> units
-                            </div>
-                            
+                            <div class="product-price">$<?php echo number_format($row['price'], 2); ?></div>
                             <div class="product-meta">
-                                <div class="product-date">
-                                    <i class="fas fa-calendar"></i> <?php echo date('M d, Y', strtotime($row['created_at'])); ?>
-                                </div>
+                                <div class="product-gender"><?php echo $genderLabel; ?></div>
                                 <div class="product-actions">
+                                    <button class="action-btn view-btn" onclick='viewProduct(<?php echo $row['id']; ?>)' title="View">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
                                     <button class="action-btn edit-btn" onclick='openEditModal(<?php echo json_encode($row); ?>)' title="Edit">
                                         <i class="fas fa-edit"></i>
                                     </button>
@@ -1041,23 +1205,36 @@ $result = $conn->query($query);
             <div class="modal-header">
                 <h3>Add New Product</h3>
             </div>
-            <form method="POST" enctype="multipart/form-data" onsubmit="return validateForm('add')">
-                <div class="form-group">
-                    <label>Product Name *</label>
-                    <input type="text" name="product_name" required placeholder="Enter product name">
+            <form method="POST" enctype="multipart/form-data">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Category *</label>
+                        <select name="category_id" required>
+                            <option value="">-- Select Category --</option>
+                            <?php 
+                            $categories->data_seek(0);
+                            while ($cat = $categories->fetch_assoc()): ?>
+                                <option value="<?php echo $cat['id']; ?>"><?php echo htmlspecialchars($cat['category_name']); ?></option>
+                            <?php endwhile; ?>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Subcategory</label>
+                        <select name="subcategory_id">
+                            <option value="">-- Select Subcategory --</option>
+                            <?php 
+                            $subcategories->data_seek(0);
+                            while ($sub = $subcategories->fetch_assoc()): ?>
+                                <option value="<?php echo $sub['id']; ?>"><?php echo htmlspecialchars($sub['subcategory_name']); ?></option>
+                            <?php endwhile; ?>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="form-group">
-                    <label>Category *</label>
-                    <select name="category_id" required>
-                        <option value="">Select a category</option>
-                        <?php 
-                        $categories->data_seek(0);
-                        while ($cat = $categories->fetch_assoc()): 
-                        ?>
-                            <option value="<?php echo $cat['id']; ?>"><?php echo htmlspecialchars($cat['category_name']); ?></option>
-                        <?php endwhile; ?>
-                    </select>
+                    <label>Product Name *</label>
+                    <input type="text" name="product_name" required placeholder="Enter product name">
                 </div>
 
                 <div class="form-group">
@@ -1067,55 +1244,54 @@ $result = $conn->query($query);
 
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Price ($) *</label>
-                        <input type="number" name="price" step="0.01" min="0" required placeholder="0.00">
-                    </div>
-
-                    <div class="form-group">
-                        <label>Discount (%)</label>
-                        <input type="number" name="discount" step="0.01" min="0" max="100" value="0" placeholder="0.00">
-                    </div>
-                </div>
-
-                <div class="form-row-three">
-                    <div class="form-group">
-                        <label>Stock Quantity *</label>
-                        <input type="number" name="stock_quantity" min="0" required placeholder="0">
+                        <label>Base Price *</label>
+                        <input type="number" step="0.01" name="price" required placeholder="0.00">
                     </div>
 
                     <div class="form-group">
                         <label>Gender</label>
                         <select name="gender">
-                            <option value="">Select Gender</option>
-                            <option value="0">Men</option>
-                            <option value="1">Women</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Size</label>
-                        <select name="size">
-                            <option value="">Select Size</option>
-                            <option value="S">S</option>
-                            <option value="M">M</option>
-                            <option value="L">L</option>
-                            <option value="XL">XL</option>
-                            <option value="XXL">XXL</option>
-                            <option value="XXXL">XXXL</option>
+                            <option value="0">Unisex</option>
+                            <option value="1">Male</option>
+                            <option value="2">Female</option>
                         </select>
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label>Product Photo</label>
-                    <div class="file-input-wrapper">
-                        <input type="file" name="product_photo" id="add_photo" accept="image/*" onchange="validateImage(this)">
-                        <label for="add_photo" class="file-input-label">
-                            <i class="fas fa-cloud-upload-alt"></i>
-                            <span>Choose an image</span>
-                        </label>
+                <div class="sizes-section">
+                    <h4><i class="fas fa-ruler"></i> Product Sizes</h4>
+                    <div class="sizes-container-wrapper">
+                        <div id="sizes-container">
+                            <div class="size-row">
+                                <div class="size-input-group">
+                                    <label>Size *</label>
+                                    <input type="text" name="sizes[]" placeholder="e.g., S, M, L, XL" required>
+                                </div>
+                                <div class="size-input-group">
+                                    <label>Quantity *</label>
+                                    <input type="number" name="quantities[]" placeholder="0" min="0" required>
+                                </div>
+                                <div class="size-input-group">
+                                    <label>Price ($) *</label>
+                                    <input type="number" step="0.01" name="size_prices[]" placeholder="0.00" min="0" required>
+                                </div>
+                                <div class="size-input-group">
+                                    <label>Discount (%)</label>
+                                    <input type="number" step="0.01" name="discounts[]" placeholder="0" min="0" max="100" value="0">
+                                </div>
+                                <div class="size-input-group">
+                                    <label>Photos for this size</label>
+                                    <input type="file" name="size_photos[0][]" multiple accept="image/*">
+                                </div>
+                                <button type="button" class="remove-size-btn" onclick="removeSize(this)">
+                                    <i class="fas fa-times"></i> Remove Size
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    <div class="file-info">Max size: 5MB | Formats: JPG, PNG, GIF</div>
+                    <button type="button" class="add-size-btn" onclick="addSize()">
+                        <i class="fas fa-plus"></i> Add Another Size
+                    </button>
                 </div>
 
                 <div class="modal-actions">
@@ -1139,25 +1315,38 @@ $result = $conn->query($query);
             <div class="modal-header">
                 <h3>Edit Product</h3>
             </div>
-            <form method="POST" enctype="multipart/form-data" onsubmit="return validateForm('edit')">
+            <form method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="product_id" id="edit_product_id">
                 
-                <div class="form-group">
-                    <label>Product Name *</label>
-                    <input type="text" name="edit_product_name" id="edit_product_name" required>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Category *</label>
+                        <select name="edit_category_id" id="edit_category_id" required>
+                            <option value="">-- Select Category --</option>
+                            <?php 
+                            $categories->data_seek(0);
+                            while ($cat = $categories->fetch_assoc()): ?>
+                                <option value="<?php echo $cat['id']; ?>"><?php echo htmlspecialchars($cat['category_name']); ?></option>
+                            <?php endwhile; ?>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Subcategory</label>
+                        <select name="edit_subcategory_id" id="edit_subcategory_id">
+                            <option value="">-- Select Subcategory --</option>
+                            <?php 
+                            $subcategories->data_seek(0);
+                            while ($sub = $subcategories->fetch_assoc()): ?>
+                                <option value="<?php echo $sub['id']; ?>"><?php echo htmlspecialchars($sub['subcategory_name']); ?></option>
+                            <?php endwhile; ?>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="form-group">
-                    <label>Category *</label>
-                    <select name="edit_category_id" id="edit_category_id" required>
-                        <option value="">Select a category</option>
-                        <?php 
-                        $categories->data_seek(0);
-                        while ($cat = $categories->fetch_assoc()): 
-                        ?>
-                            <option value="<?php echo $cat['id']; ?>"><?php echo htmlspecialchars($cat['category_name']); ?></option>
-                        <?php endwhile; ?>
-                    </select>
+                    <label>Product Name *</label>
+                    <input type="text" name="edit_product_name" id="edit_product_name" required>
                 </div>
 
                 <div class="form-group">
@@ -1167,55 +1356,28 @@ $result = $conn->query($query);
 
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Price ($) *</label>
-                        <input type="number" name="edit_price" id="edit_price" step="0.01" min="0" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Discount (%)</label>
-                        <input type="number" name="edit_discount" id="edit_discount" step="0.01" min="0" max="100">
-                    </div>
-                </div>
-
-                <div class="form-row-three">
-                    <div class="form-group">
-                        <label>Stock Quantity *</label>
-                        <input type="number" name="edit_stock_quantity" id="edit_stock_quantity" min="0" required>
+                        <label>Base Price *</label>
+                        <input type="number" step="0.01" name="edit_price" id="edit_price" required>
                     </div>
 
                     <div class="form-group">
                         <label>Gender</label>
                         <select name="edit_gender" id="edit_gender">
-                            <option value="">Select Gender</option>
-                            <option value="0">Men</option>
-                            <option value="1">Women</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Size</label>
-                        <select name="edit_size" id="edit_size">
-                            <option value="">Select Size</option>
-                            <option value="S">S</option>
-                            <option value="M">M</option>
-                            <option value="L">L</option>
-                            <option value="XL">XL</option>
-                            <option value="XXL">XXL</option>
-                            <option value="XXXL">XXXL</option>
+                            <option value="0">Unisex</option>
+                            <option value="1">Male</option>
+                            <option value="2">Female</option>
                         </select>
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label>New Photo (optional)</label>
-                    <div class="file-input-wrapper">
-                        <input type="file" name="edit_product_photo" id="edit_photo" accept="image/*" onchange="validateImage(this)">
-                        <label for="edit_photo" class="file-input-label">
-                            <i class="fas fa-cloud-upload-alt"></i>
-                            <span>Choose a new image</span>
-                        </label>
+                <div class="sizes-section">
+                    <h4><i class="fas fa-ruler"></i> Update Product Sizes</h4>
+                    <div class="sizes-container-wrapper">
+                        <div id="edit-sizes-container"></div>
                     </div>
-                    <div class="file-info">Max size: 5MB | Formats: JPG, PNG, GIF</div>
+                    <button type="button" class="add-size-btn" onclick="addEditSize()">
+                        <i class="fas fa-plus"></i> Add Another Size
+                    </button>
                 </div>
 
                 <div class="modal-actions">
@@ -1230,73 +1392,304 @@ $result = $conn->query($query);
         </div>
     </div>
 
+    <!-- View Product Modal -->
+    <div class="modal view-modal" id="viewModal">
+        <div class="modal-content">
+            <button class="close-modal" onclick="closeViewModal()">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="modal-header">
+                <h3 id="view_product_name">Product Details</h3>
+            </div>
+            <div id="view_content"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeViewModal()" style="width: 100%">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
-        function validateImage(input) {
-            const file = input.files[0];
-            if (file) {
-                if (file.size > 5242880) {
-                    alert('File size must be less than 5MB!');
-                    input.value = '';
-                    return false;
-                }
-                
-                const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
-                if (!validTypes.includes(file.type)) {
-                    alert('Please select a valid image file (JPG, PNG, or GIF)');
-                    input.value = '';
-                    return false;
-                }
-                
-                const label = input.nextElementSibling.querySelector('span');
-                if (label) {
-                    label.textContent = file.name;
-                }
-            }
-            return true;
+        let sizeIndex = 1;
+
+        function addSize() {
+            const container = document.getElementById('sizes-container');
+            const div = document.createElement('div');
+            div.classList.add('size-row');
+            div.innerHTML = `
+                <div class="size-input-group">
+                    <label>Size *</label>
+                    <input type="text" name="sizes[]" placeholder="e.g., S, M, L, XL" required>
+                </div>
+                <div class="size-input-group">
+                    <label>Quantity *</label>
+                    <input type="number" name="quantities[]" placeholder="0" min="0" required>
+                </div>
+                <div class="size-input-group">
+                    <label>Price ($) *</label>
+                    <input type="number" step="0.01" name="size_prices[]" placeholder="0.00" min="0" required>
+                </div>
+                <div class="size-input-group">
+                    <label>Discount (%)</label>
+                    <input type="number" step="0.01" name="discounts[]" placeholder="0" min="0" max="100" value="0">
+                </div>
+                <div class="size-input-group">
+                    <label>Photos for this size</label>
+                    <input type="file" name="size_photos[${sizeIndex}][]" multiple accept="image/*">
+                </div>
+                <button type="button" class="remove-size-btn" onclick="removeSize(this)">
+                    <i class="fas fa-times"></i> Remove Size
+                </button>
+            `;
+            container.appendChild(div);
+            sizeIndex++;
+            
+            setTimeout(() => {
+                div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 100);
         }
 
-        function validateForm(type) {
-            const fileInput = type === 'add' ? 
-                document.getElementById('add_photo') : 
-                document.getElementById('edit_photo');
+        let editSizeIndex = 1;
+
+        function addEditSize() {
+            const container = document.getElementById('edit-sizes-container');
+            const div = document.createElement('div');
+            div.classList.add('size-row');
+            div.innerHTML = `
+                <div class="size-input-group">
+                    <label>Size *</label>
+                    <input type="text" name="edit_sizes[]" placeholder="e.g., S, M, L, XL" required>
+                </div>
+                <div class="size-input-group">
+                    <label>Quantity *</label>
+                    <input type="number" name="edit_quantities[]" placeholder="0" min="0" required>
+                </div>
+                <div class="size-input-group">
+                    <label>Price ($) *</label>
+                    <input type="number" step="0.01" name="edit_size_prices[]" placeholder="0.00" min="0" required>
+                </div>
+                <div class="size-input-group">
+                    <label>Discount (%)</label>
+                    <input type="number" step="0.01" name="edit_discounts[]" placeholder="0" min="0" max="100" value="0">
+                </div>
+                <div class="size-input-group">
+                    <label>Photos for this size</label>
+                    <input type="file" name="edit_size_photos[${editSizeIndex}][]" multiple accept="image/*">
+                </div>
+                <button type="button" class="remove-size-btn" onclick="removeSize(this)">
+                    <i class="fas fa-times"></i> Remove Size
+                </button>
+            `;
+            container.appendChild(div);
+            editSizeIndex++;
             
-            if (fileInput.files.length > 0) {
-                return validateImage(fileInput);
+            setTimeout(() => {
+                div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 100);
+        }
+
+        function removeSize(button) {
+            const row = button.closest('.size-row');
+            const container = row.parentElement;
+            
+            if (container.children.length <= 1) {
+                alert('You must have at least one size entry.');
+                return;
             }
-            return true;
+            
+            row.style.transition = 'all 0.3s ease';
+            row.style.opacity = '0';
+            row.style.transform = 'translateX(-20px)';
+            
+            setTimeout(() => {
+                row.remove();
+            }, 300);
         }
 
         function openAddModal() {
             document.getElementById('addModal').classList.add('active');
+            sizeIndex = 1;
         }
 
         function closeAddModal() {
             document.getElementById('addModal').classList.remove('active');
             document.querySelector('#addModal form').reset();
-            document.querySelector('#addModal .file-input-label span').textContent = 'Choose an image';
+            const container = document.getElementById('sizes-container');
+            container.innerHTML = `
+                <div class="size-row">
+                    <div class="size-input-group">
+                        <label>Size *</label>
+                        <input type="text" name="sizes[]" placeholder="e.g., S, M, L, XL" required>
+                    </div>
+                    <div class="size-input-group">
+                        <label>Quantity *</label>
+                        <input type="number" name="quantities[]" placeholder="0" min="0" required>
+                    </div>
+                    <div class="size-input-group">
+                        <label>Price ($) *</label>
+                        <input type="number" step="0.01" name="size_prices[]" placeholder="0.00" min="0" required>
+                    </div>
+                    <div class="size-input-group">
+                        <label>Discount (%)</label>
+                        <input type="number" step="0.01" name="discounts[]" placeholder="0" min="0" max="100" value="0">
+                    </div>
+                    <div class="size-input-group">
+                        <label>Photos for this size</label>
+                        <input type="file" name="size_photos[0][]" multiple accept="image/*">
+                    </div>
+                    <button type="button" class="remove-size-btn" onclick="removeSize(this)">
+                        <i class="fas fa-times"></i> Remove Size
+                    </button>
+                </div>
+            `;
+            sizeIndex = 1;
         }
 
         function openEditModal(data) {
             document.getElementById('editModal').classList.add('active');
             document.getElementById('edit_product_id').value = data.id;
-            document.getElementById('edit_product_name').value = data.product_name;
             document.getElementById('edit_category_id').value = data.category_id;
+            document.getElementById('edit_subcategory_id').value = data.subcategory_id || '';
+            document.getElementById('edit_product_name').value = data.product_name;
             document.getElementById('edit_description').value = data.description || '';
             document.getElementById('edit_price').value = data.price;
-            document.getElementById('edit_discount').value = data.discount;
-            document.getElementById('edit_stock_quantity').value = data.stock_quantity;
-            document.getElementById('edit_gender').value = data.gender !== null ? data.gender : '';
-            document.getElementById('edit_size').value = data.size || '';
+            document.getElementById('edit_gender').value = data.gender;
+            editSizeIndex = 0;
+
+            fetch(`ManageProducts.php?ajax=get_sizes&id=${data.id}`)
+                .then(response => response.json())
+                .then(sizes => {
+                    const container = document.getElementById('edit-sizes-container');
+                    container.innerHTML = '';
+                    if (sizes.length > 0) {
+                        sizes.forEach((size, index) => {
+                            const div = document.createElement('div');
+                            div.classList.add('size-row');
+                            div.innerHTML = `
+                                <div class="size-input-group">
+                                    <label>Size *</label>
+                                    <input type="text" name="edit_sizes[]" value="${size.size}" required>
+                                </div>
+                                <div class="size-input-group">
+                                    <label>Quantity *</label>
+                                    <input type="number" name="edit_quantities[]" value="${size.quantity}" min="0" required>
+                                </div>
+                                <div class="size-input-group">
+                                    <label>Price ($) *</label>
+                                    <input type="number" step="0.01" name="edit_size_prices[]" value="${size.price}" min="0" required>
+                                </div>
+                                <div class="size-input-group">
+                                    <label>Discount (%)</label>
+                                    <input type="number" step="0.01" name="edit_discounts[]" value="${size.discount}" min="0" max="100">
+                                </div>
+                                <div class="size-input-group">
+                                    <label>Photos for this size</label>
+                                    <input type="file" name="edit_size_photos[${index}][]" multiple accept="image/*">
+                                </div>
+                                <button type="button" class="remove-size-btn" onclick="removeSize(this)">
+                                    <i class="fas fa-times"></i> Remove Size
+                                </button>
+                            `;
+                            container.appendChild(div);
+                            editSizeIndex = index + 1;
+                        });
+                    } else {
+                        addEditSize();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading sizes:', error);
+                    addEditSize();
+                });
         }
 
         function closeEditModal() {
             document.getElementById('editModal').classList.remove('active');
-            document.querySelector('#editModal form').reset();
-            document.querySelector('#editModal .file-input-label span').textContent = 'Choose a new image';
+        }
+
+        function viewProduct(id) {
+            document.getElementById('viewModal').classList.add('active');
+            
+            fetch(`ManageProducts.php?ajax=get_details&id=${id}`)
+                .then(response => response.json())
+                .then(data => {
+                    const genderLabels = ['Unisex', 'Male', 'Female'];
+                    let photosHtml = '';
+                    if (data.photos && data.photos.length > 0) {
+                        photosHtml = '<div class="product-gallery-view">';
+                        data.photos.forEach(photo => {
+                            photosHtml += `<img src="data:image/jpeg;base64,${photo.photo}" alt="Product Photo">`;
+                        });
+                        photosHtml += '</div>';
+                    }
+
+                    let sizesHtml = '';
+                    if (data.sizes && data.sizes.length > 0) {
+                        sizesHtml = `
+                            <h4 style="margin-top: 20px; margin-bottom: 10px;">Available Sizes</h4>
+                            <table class="sizes-table">
+                                <thead>
+                                    <tr>
+                                        <th>Size</th>
+                                        <th>Quantity</th>
+                                        <th>Price</th>
+                                        <th>Discount</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                        `;
+                        data.sizes.forEach(size => {
+                            sizesHtml += `
+                                <tr>
+                                    <td>${size.size}</td>
+                                    <td>${size.quantity}</td>
+                                    <td>${parseFloat(size.price).toFixed(2)}</td>
+                                    <td>${size.discount}%</td>
+                                </tr>
+                            `;
+                        });
+                        sizesHtml += '</tbody></table>';
+                    }
+
+                    document.getElementById('view_product_name').textContent = data.product_name;
+                    document.getElementById('view_content').innerHTML = `
+                        ${photosHtml}
+                        <div class="info-row">
+                            <div class="info-label">Category:</div>
+                            <div class="info-value">${data.category_name}</div>
+                        </div>
+                        <div class="info-row">
+                            <div class="info-label">Subcategory:</div>
+                            <div class="info-value">${data.subcategory_name || 'N/A'}</div>
+                        </div>
+                        <div class="info-row">
+                            <div class="info-label">Base Price:</div>
+                            <div class="info-value">${parseFloat(data.price).toFixed(2)}</div>
+                        </div>
+                        <div class="info-row">
+                            <div class="info-label">Gender:</div>
+                            <div class="info-value">${genderLabels[data.gender]}</div>
+                        </div>
+                        <div class="info-row">
+                            <div class="info-label">Description:</div>
+                            <div class="info-value">${data.description || 'No description'}</div>
+                        </div>
+                        ${sizesHtml}
+                    `;
+                })
+                .catch(error => {
+                    console.error('Error loading product details:', error);
+                    document.getElementById('view_content').innerHTML = '<p style="color: red;">Error loading product details.</p>';
+                });
+        }
+
+        function closeViewModal() {
+            document.getElementById('viewModal').classList.remove('active');
         }
 
         function deleteProduct(id) {
-            if (confirm('Are you sure you want to delete this product?')) {
+            if (confirm('Are you sure you want to delete this product? This will also delete all associated photos and sizes.')) {
                 window.location.href = 'ManageProducts.php?delete=' + id;
             }
         }
@@ -1304,11 +1697,15 @@ $result = $conn->query($query);
         window.onclick = function(event) {
             const addModal = document.getElementById('addModal');
             const editModal = document.getElementById('editModal');
+            const viewModal = document.getElementById('viewModal');
             if (event.target == addModal) {
                 closeAddModal();
             }
             if (event.target == editModal) {
                 closeEditModal();
+            }
+            if (event.target == viewModal) {
+                closeViewModal();
             }
         }
 

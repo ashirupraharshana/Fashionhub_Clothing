@@ -14,6 +14,7 @@ if ($conn->connect_error) {
 
 $message = "";
 $messageType = ""; 
+$reopenModal = ""; // Track which modal to reopen
 
 // ====== SIGNUP FORM ======
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] == 'signup') {
@@ -25,9 +26,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
     if (empty($fullname) || empty($email) || empty($password)) {
         $message = "Please fill in all required fields.";
         $messageType = "error";
+        $reopenModal = "signup";
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $message = "Invalid email address.";
         $messageType = "error";
+        $reopenModal = "signup";
     } else {
         $checkQuery = "SELECT id FROM users WHERE email = ?";
         $stmt = $conn->prepare($checkQuery);
@@ -38,6 +41,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
         if ($result->num_rows > 0) {
             $message = "This email is already registered. Please login.";
             $messageType = "error";
+            $reopenModal = "signup";
         } else {
             $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
             $insertQuery = "INSERT INTO users (fullname, email, phone, password) VALUES (?, ?, ?, ?)";
@@ -46,9 +50,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
             if ($stmt->execute()) {
                 $message = "Account created successfully! You can now log in.";
                 $messageType = "success";
+                $reopenModal = ""; // Don't reopen modal on success
             } else {
                 $message = "Error creating account: " . $conn->error;
                 $messageType = "error";
+                $reopenModal = "signup";
             }
         }
         $stmt->close();
@@ -63,6 +69,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
     if (empty($email) || empty($password)) {
         $message = "Please enter both email and password.";
         $messageType = "error";
+        $reopenModal = "login";
     } else {
         $query = "SELECT * FROM users WHERE email = ?";
         $stmt = $conn->prepare($query);
@@ -72,26 +79,27 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
 
         if ($result->num_rows === 1) {
             $user = $result->fetch_assoc();
-if (password_verify($password, $user['password'])) {
-    $_SESSION['user_id'] = $user['id'];
-    $_SESSION['fullname'] = $user['fullname'];
-    $_SESSION['userrole'] = $user['userrole'];
+            if (password_verify($password, $user['password'])) {
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['fullname'] = $user['fullname'];
+                $_SESSION['userrole'] = $user['userrole'];
 
-    if ($user['userrole'] == 1) {
-        header("Location: /fashionhub/Admin/AdminDashboard.php");
-        exit;
-    } else {
-        header("Location: /fashionhub/Customer/CustomerDashboard.php");
-        exit;
-    }
-}
- else {
+                if ($user['userrole'] == 1) {
+                    header("Location: /fashionhub/Admin/AdminDashboard.php");
+                    exit;
+                } else {
+                    header("Location: /fashionhub/Customer/CustomerDashboard.php");
+                    exit;
+                }
+            } else {
                 $message = "Incorrect password.";
                 $messageType = "error";
+                $reopenModal = "login";
             }
         } else {
             $message = "No account found with that email.";
             $messageType = "error";
+            $reopenModal = "login";
         }
         $stmt->close();
     }
@@ -152,6 +160,17 @@ if (password_verify($password, $user['password'])) {
             to {
                 transform: translate(-50%, 0);
                 opacity: 1;
+            }
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translate(-50%, 0);
+                opacity: 1;
+            }
+            to {
+                transform: translate(-50%, -20px);
+                opacity: 0;
             }
         }
 
@@ -366,11 +385,11 @@ if (password_verify($password, $user['password'])) {
             max-width: 450px;
             padding: 0;
             position: relative;
-            animation: slideUp 0.3s;
+            animation: slideUpModal 0.3s;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
         }
 
-        @keyframes slideUp {
+        @keyframes slideUpModal {
             from {
                 transform: translateY(-50px);
                 opacity: 0;
@@ -847,10 +866,10 @@ if (password_verify($password, $user['password'])) {
         </div>
 
         <ul class="sidebar-menu">
-                     <li><a href="Homepage.php">Home</a></li>
-                <li><a href="/fashionhub/Collections.php">Collections</a></li>
-                <li><a href="/fashionhub/AboutUs.php">About</a></li>
-                <li><a href="/fashionhub/ContactUs.php">Contact</a></li>
+            <li><a href="Homepage.php">Home</a></li>
+            <li><a href="/fashionhub/Collections.php">Collections</a></li>
+            <li><a href="/fashionhub/AboutUs.php">About</a></li>
+            <li><a href="/fashionhub/ContactUs.php">Contact</a></li>
         </ul>
     </aside>
 
@@ -880,6 +899,15 @@ if (password_verify($password, $user['password'])) {
                 }, 300);
             }, 5000);
         }
+
+        // Reopen modal if there was an error
+        <?php if (!empty($reopenModal)): ?>
+            <?php if ($reopenModal === 'login'): ?>
+                loginModal.classList.add('active');
+            <?php elseif ($reopenModal === 'signup'): ?>
+                signupModal.classList.add('active');
+            <?php endif; ?>
+        <?php endif; ?>
 
         // Toggle sidebar
         menuToggle.addEventListener('click', function() {
@@ -956,12 +984,14 @@ if (password_verify($password, $user['password'])) {
 
         // Newsletter form submission
         const newsletterForm = document.querySelector('.newsletter-form');
-        newsletterForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const email = this.querySelector('input').value;
-            alert('Thank you for subscribing! We will send updates to: ' + email);
-            this.reset();
-        });
+        if (newsletterForm) {
+            newsletterForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const email = this.querySelector('input').value;
+                alert('Thank you for subscribing! We will send updates to: ' + email);
+                this.reset();
+            });
+        }
 
         // Smooth scrolling for anchor links
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {
