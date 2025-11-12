@@ -116,8 +116,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
         $stmt->close();
     }
 }
-
-// ====== FETCH CART DATA ======
+// ====== FETCH CART DATA ====== 
 if (isset($_SESSION['user_id'])) {
     $user_id = $_SESSION['user_id'];
     
@@ -131,8 +130,8 @@ if (isset($_SESSION['user_id'])) {
     $cart_count = $cart_count_row['total'] ?? 0;
     $stmt->close();
     
-    // Get cart total - FIXED: Calculate from (price * quantity) for each item
-    $cart_total_sql = "SELECT SUM(price * quantity) as total FROM cart WHERE user_id = ?";
+    // Get cart total
+    $cart_total_sql = "SELECT SUM(total_price) as total FROM cart WHERE user_id = ?";
     $stmt = $conn->prepare($cart_total_sql);
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
@@ -141,24 +140,41 @@ if (isset($_SESSION['user_id'])) {
     $cart_total = $cart_total_row['total'] ?? 0;
     $stmt->close();
     
-    // Store cart items in an array
-    $cart_items_sql = "SELECT c.id, c.product_id, c.quantity, c.price, 
-                       (c.price * c.quantity) as item_total,
-                       p.product_name, p.product_photo 
+    // Get cart items WITH SIZE INFO
+    $cart_items_sql = "SELECT 
+                        c.id, 
+                        c.product_id, 
+                        c.size_id,
+                        c.size,
+                        c.quantity, 
+                        c.price, 
+                        c.total_price,
+                        p.product_name,
+                        (SELECT photo FROM photos WHERE product_id = c.product_id AND size_id = c.size_id LIMIT 1) as product_photo
                        FROM cart c 
-                       JOIN products p ON c.product_id = p.id 
+                       INNER JOIN products p ON c.product_id = p.id 
                        WHERE c.user_id = ? 
                        ORDER BY c.id DESC";
-    $stmt = $conn->prepare($cart_items_sql);
-    $stmt->bind_param("i", $user_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
     
-    $cart_items_array = [];
-    while ($row = $result->fetch_assoc()) {
-        $cart_items_array[] = $row;
+    $stmt = $conn->prepare($cart_items_sql);
+    if (!$stmt) {
+        error_log("Cart query prepare failed: " . $conn->error);
+        $cart_items_array = [];
+    } else {
+        $stmt->bind_param("i", $user_id);
+        if (!$stmt->execute()) {
+            error_log("Cart query execute failed: " . $stmt->error);
+            $cart_items_array = [];
+        } else {
+            $result = $stmt->get_result();
+            $cart_items_array = [];
+            while ($row = $result->fetch_assoc()) {
+                $cart_items_array[] = $row;
+            }
+        }
+        $stmt->close();
     }
-    $stmt->close();
+    
 } else {
     $cart_count = 0;
     $cart_total = 0;
@@ -1057,62 +1073,72 @@ if (isset($_SESSION['user_id'])) {
                             </button>
                         </div>
 
-                        <div class="cart-dropdown-body" id="cartDropdownBody">
-                            <?php if (isset($_SESSION['user_id'])): ?>
-                                <?php if (!empty($cart_items_array)): ?>
-                                    <?php foreach($cart_items_array as $item): ?>
-                                        <div class="cart-item">
-                                            <img src="data:image/jpeg;base64,<?php echo $item['product_photo']; ?>" 
-                                                 alt="<?php echo htmlspecialchars($item['product_name']); ?>" 
-                                                 class="cart-item-image">
-                                            <div class="cart-item-details">
-                                                <div class="cart-item-name">
-                                                    <?php echo htmlspecialchars($item['product_name']); ?>
-                                                </div>
-                                                <div class="cart-item-info">
-                                                    <span class="cart-item-quantity">Qty: <?php echo $item['quantity']; ?></span>
-                                                    <span class="cart-item-price">Rs. <?php echo number_format($item['item_total'], 2); ?></span>
-                                                </div>
-                                            </div>
-                                            <form method="POST" style="display: inline;">
-                                                <input type="hidden" name="action" value="delete_cart_item">
-                                                <input type="hidden" name="cart_id" value="<?php echo $item['id']; ?>">
-                                                <button type="submit" class="delete-cart-item" title="Remove item" onclick="return confirm('Remove this item from cart?')">
-                                                    <i class="fas fa-trash"></i>
-                                                </button>
-                                            </form>
-                                        </div>
-                                    <?php endforeach; ?>
-                                <?php else: ?>
-                                    <div class="cart-empty">
-                                        <i class="fas fa-shopping-cart"></i>
-                                        <p><strong>Your cart is empty</strong></p>
-                                        <p>Add some products to get started!</p>
-                                    </div>
-                                <?php endif; ?>
-                            <?php else: ?>
-                                <div class="cart-empty">
-                                    <i class="fas fa-sign-in-alt"></i>
-                                    <p><strong>Please login to view cart</strong></p>
-                                    <p>Login to add and view your cart items</p>
-                                </div>
-                            <?php endif; ?>
+                       <div class="cart-dropdown-body" id="cartDropdownBody">
+    <?php if (isset($_SESSION['user_id'])): ?>
+        <?php if (!empty($cart_items_array) && count($cart_items_array) > 0): ?>
+            <?php foreach($cart_items_array as $item): ?>
+                <div class="cart-item">
+                    <?php if (!empty($item['product_photo'])): ?>
+                        <img src="data:image/jpeg;base64,<?php echo $item['product_photo']; ?>" 
+                             alt="<?php echo htmlspecialchars($item['product_name']); ?>" 
+                             class="cart-item-image"
+                             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect fill=%22%23ddd%22 width=%22100%22 height=%22100%22/%3E%3Ctext fill=%22%23999%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22%3ENo Image%3C/text%3E%3C/svg%3E'">
+                    <?php else: ?>
+                        <img src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect fill=%22%23ddd%22 width=%22100%22 height=%22100%22/%3E%3Ctext fill=%22%23999%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22%3ENo Image%3C/text%3E%3C/svg%3E" 
+                             alt="No image" 
+                             class="cart-item-image">
+                    <?php endif; ?>
+                    <div class="cart-item-details">
+                        <div class="cart-item-name">
+                            <?php echo htmlspecialchars($item['product_name']); ?>
                         </div>
+                        <div class="cart-item-info">
+                            <span class="cart-item-quantity">
+                                Size: <?php echo htmlspecialchars($item['size']); ?> | Qty: <?php echo $item['quantity']; ?>
+                            </span>
+                            <span class="cart-item-price">Rs. <?php echo number_format($item['total_price'], 2); ?></span>
+                        </div>
+                    </div>
+                    <form method="POST" style="display: inline;">
+                        <input type="hidden" name="action" value="delete_cart_item">
+                        <input type="hidden" name="cart_id" value="<?php echo $item['id']; ?>">
+                        <button type="submit" class="delete-cart-item" title="Remove item" onclick="return confirm('Remove this item from cart?')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </form>
+                </div>
+            <?php endforeach; ?>
+        <?php else: ?>
+            <div class="cart-empty">
+                <i class="fas fa-shopping-cart"></i>
+                <p><strong>Your cart is empty</strong></p>
+                <p>Add some products to get started!</p>
+            </div>
+        <?php endif; ?>
+    <?php else: ?>
+        <div class="cart-empty">
+            <i class="fas fa-sign-in-alt"></i>
+            <p><strong>Please login to view cart</strong></p>
+            <p>Login to add and view your cart items</p>
+        </div>
+    <?php endif; ?>
+</div>
 
-                        <?php if (isset($_SESSION['user_id']) && $cart_count > 0): ?>
-                            <div class="cart-dropdown-footer" id="cartDropdownFooter">
-                                <div class="cart-subtotal">
-                                    <span class="cart-subtotal-label">Total:</span>
-                                    <span class="cart-subtotal-amount" id="cartTotalAmount">Rs. <?php echo number_format($cart_total, 2); ?></span>
-                                </div>
-                                <form method="GET" action="/fashionhub/Customer/CartItemCheckout.php">
-                                    <button type="submit" class="checkout-btn">
-                                        <i class="fas fa-credit-card"></i>
-                                        Proceed to Checkout
-                                    </button>
-                                </form>
-                            </div>
-                        <?php endif; ?>
+
+<?php if (isset($_SESSION['user_id']) && $cart_count > 0): ?>
+    <div class="cart-dropdown-footer" id="cartDropdownFooter">
+        <div class="cart-subtotal">
+            <span class="cart-subtotal-label">Total:</span>
+            <span class="cart-subtotal-amount" id="cartTotalAmount">Rs. <?php echo number_format($cart_total, 2); ?></span>
+        </div>
+        <form method="GET" action="/fashionhub/Customer/CartItemCheckout.php">
+            <button type="submit" class="checkout-btn">
+                <i class="fas fa-credit-card"></i>
+                Proceed to Checkout
+            </button>
+        </form>
+    </div>
+<?php endif; ?>
                     </div>
                 </div>
 
@@ -1424,127 +1450,104 @@ if (isset($_SESSION['user_id'])) {
             console.log('All event listeners initialized!');
         });
 
-        // GLOBAL FUNCTION TO UPDATE CART FROM OTHER PAGES
-        window.updateCartDisplay = function(cartData) {
-            console.log('Updating cart display:', cartData);
-            
-            // Update badge
-            const cartBadge = document.getElementById('cartBadge');
-            const cartCountBadge = document.getElementById('cartCountBadge');
-            
-            if (cartData.cart_count > 0) {
-                if (cartBadge) {
-                    cartBadge.textContent = cartData.cart_count;
-                    cartBadge.style.display = 'block';
-                } else {
-                    // Create badge if it doesn't exist
-                    const cartToggle = document.getElementById('cartToggle');
-                    if (cartToggle) {
-                        const newBadge = document.createElement('span');
-                        newBadge.className = 'badge';
-                        newBadge.id = 'cartBadge';
-                        newBadge.textContent = cartData.cart_count;
-                        cartToggle.appendChild(newBadge);
-                    }
-                }
-                
-                if (cartCountBadge) {
-                    cartCountBadge.textContent = cartData.cart_count;
-                    cartCountBadge.style.display = 'inline-block';
-                } else {
-                    // Create count badge in header
-                    const headerH3 = document.querySelector('.cart-dropdown-header h3');
-                    if (headerH3) {
-                        const newCountBadge = document.createElement('span');
-                        newCountBadge.className = 'cart-count-badge';
-                        newCountBadge.id = 'cartCountBadge';
-                        newCountBadge.textContent = cartData.cart_count;
-                        headerH3.appendChild(newCountBadge);
-                    }
-                }
-            } else {
-                if (cartBadge) cartBadge.style.display = 'none';
-                if (cartCountBadge) cartCountBadge.style.display = 'none';
+window.updateCartDisplay = function(cartData) {
+    console.log('Updating cart display:', cartData);
+    
+    // Update badge
+    const cartBadge = document.getElementById('cartBadge');
+    const cartCountBadge = document.getElementById('cartCountBadge');
+    
+    if (cartData.cart_count > 0) {
+        if (cartBadge) {
+            cartBadge.textContent = cartData.cart_count;
+            cartBadge.style.display = 'block';
+        } else {
+            const cartToggle = document.getElementById('cartToggle');
+            if (cartToggle) {
+                const newBadge = document.createElement('span');
+                newBadge.className = 'badge';
+                newBadge.id = 'cartBadge';
+                newBadge.textContent = cartData.cart_count;
+                cartToggle.appendChild(newBadge);
             }
-            
-            // Update cart body
-            const cartBody = document.getElementById('cartDropdownBody');
-            if (cartBody) {
-                cartBody.innerHTML = '';
-                
-                if (cartData.cart_items && cartData.cart_items.length > 0) {
-                    cartData.cart_items.forEach(item => {
-                        const cartItem = document.createElement('div');
-                        cartItem.className = 'cart-item';
-                        cartItem.innerHTML = `
-                            <img src="data:image/jpeg;base64,${item.product_photo}" 
-                                 alt="${escapeHtml(item.product_name)}" 
-                                 class="cart-item-image">
-                            <div class="cart-item-details">
-                                <div class="cart-item-name">${escapeHtml(item.product_name)}</div>
-                                <div class="cart-item-info">
-                                    <span class="cart-item-quantity">Qty: ${item.quantity}</span>
-                                    <span class="cart-item-price">Rs. ${parseFloat(item.price * item.quantity).toFixed(2)}</span>
-                                </div>
-                            </div>
-                            <form method="POST" style="display: inline;">
-                                <input type="hidden" name="action" value="delete_cart_item">
-                                <input type="hidden" name="cart_id" value="${item.id}">
-                                <button type="submit" class="delete-cart-item" title="Remove item" onclick="return confirm('Remove this item from cart?')">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </form>
-                        `;
-                        cartBody.appendChild(cartItem);
-                    });
-                } else {
-                    cartBody.innerHTML = `
-                        <div class="cart-empty">
-                            <i class="fas fa-shopping-cart"></i>
-                            <p><strong>Your cart is empty</strong></p>
-                            <p>Add some products to get started!</p>
+        }
+        
+        if (cartCountBadge) {
+            cartCountBadge.textContent = cartData.cart_count;
+            cartCountBadge.style.display = 'inline-block';
+        } else {
+            const headerH3 = document.querySelector('.cart-dropdown-header h3');
+            if (headerH3) {
+                const newCountBadge = document.createElement('span');
+                newCountBadge.className = 'cart-count-badge';
+                newCountBadge.id = 'cartCountBadge';
+                newCountBadge.textContent = cartData.cart_count;
+                headerH3.appendChild(newCountBadge);
+            }
+        }
+    } else {
+        if (cartBadge) cartBadge.style.display = 'none';
+        if (cartCountBadge) cartCountBadge.style.display = 'none';
+    }
+    
+    // Update cart body
+    const cartBody = document.getElementById('cartDropdownBody');
+    if (cartBody) {
+        cartBody.innerHTML = '';
+        
+        if (cartData.cart_items && cartData.cart_items.length > 0) {
+            cartData.cart_items.forEach(item => {
+                const cartItem = document.createElement('div');
+                cartItem.className = 'cart-item';
+                cartItem.innerHTML = `
+                    <img src="data:image/jpeg;base64,${item.product_photo || ''}" 
+                         alt="${escapeHtml(item.product_name)}" 
+                         class="cart-item-image"
+                         onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect fill=%22%23ddd%22 width=%22100%22 height=%22100%22/%3E%3Ctext fill=%22%23999%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22%3ENo Image%3C/text%3E%3C/svg%3E'">
+                    <div class="cart-item-details">
+                        <div class="cart-item-name">${escapeHtml(item.product_name)}</div>
+                        <div class="cart-item-info">
+                            <span class="cart-item-quantity">Size: ${escapeHtml(item.size)} | Qty: ${item.quantity}</span>
+                            <span class="cart-item-price">Rs. ${parseFloat(item.total_price).toFixed(2)}</span>
                         </div>
-                    `;
-                }
-            }
-            
-            // Update footer
-            const cartFooter = document.getElementById('cartDropdownFooter');
-            const cartTotalAmount = document.getElementById('cartTotalAmount');
-            
-            if (cartData.cart_count > 0) {
-                if (cartTotalAmount) {
-                    cartTotalAmount.textContent = 'Rs. ' + parseFloat(cartData.cart_total).toFixed(2);
-                }
-                
-                if (cartFooter) {
-                    cartFooter.style.display = 'block';
-                } else {
-                    // Create footer if it doesn't exist
-                    const cartDropdown = document.getElementById('cartDropdown');
-                    if (cartDropdown) {
-                        const newFooter = document.createElement('div');
-                        newFooter.className = 'cart-dropdown-footer';
-                        newFooter.id = 'cartDropdownFooter';
-                        newFooter.innerHTML = `
-                            <div class="cart-subtotal">
-                                <span class="cart-subtotal-label">Total:</span>
-                                <span class="cart-subtotal-amount" id="cartTotalAmount">Rs. ${parseFloat(cartData.cart_total).toFixed(2)}</span>
-                            </div>
-                            <form method="GET" action="/fashionhub/Customer/CartItemCheckout.php">
-                                <button type="submit" class="checkout-btn">
-                                    <i class="fas fa-credit-card"></i>
-                                    Proceed to Checkout
-                                </button>
-                            </form>
-                        `;
-                        cartDropdown.appendChild(newFooter);
-                    }
-                }
-            } else {
-                if (cartFooter) cartFooter.style.display = 'none';
-            }
-        };
+                    </div>
+                    <form method="POST" style="display: inline;">
+                        <input type="hidden" name="action" value="delete_cart_item">
+                        <input type="hidden" name="cart_id" value="${item.id}">
+                        <button type="submit" class="delete-cart-item" title="Remove item" onclick="return confirm('Remove this item from cart?')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </form>
+                `;
+                cartBody.appendChild(cartItem);
+            });
+        } else {
+            cartBody.innerHTML = `
+                <div class="cart-empty">
+                    <i class="fas fa-shopping-cart"></i>
+                    <p><strong>Your cart is empty</strong></p>
+                    <p>Add some products to get started!</p>
+                </div>
+            `;
+        }
+    }
+    
+    // Update footer
+    const cartFooter = document.getElementById('cartDropdownFooter');
+    const cartTotalAmount = document.getElementById('cartTotalAmount');
+    
+    if (cartData.cart_count > 0) {
+        if (cartTotalAmount) {
+            cartTotalAmount.textContent = 'Rs. ' + parseFloat(cartData.cart_total).toFixed(2);
+        }
+        
+        if (cartFooter) {
+            cartFooter.style.display = 'block';
+        }
+    } else {
+        if (cartFooter) cartFooter.style.display = 'none';
+    }
+};
 
         function escapeHtml(text) {
             const map = {

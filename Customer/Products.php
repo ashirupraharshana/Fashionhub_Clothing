@@ -1,6 +1,7 @@
 <?php
 if (session_status() === PHP_SESSION_NONE) session_start();
 include_once '../db_connect.php';
+include 'Components/CustomerNavBar.php';
 
 
 // Redirect to login if not logged in
@@ -80,28 +81,7 @@ $subcategories = $conn->query("SELECT id, subcategory_name FROM subcategories OR
             padding: 50px 30px;
         }
 
-        .page-hero {
-            text-align: center;
-            margin-bottom: 60px;
-            animation: fadeInDown 0.8s ease;
-        }
 
-        .page-hero h1 {
-            font-size: 48px;
-            font-weight: 800;
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 15px;
-            letter-spacing: -1px;
-        }
-
-        .page-hero p {
-            font-size: 18px;
-            color: #7f8c8d;
-            font-weight: 500;
-        }
 
         .toolbar {
             background: white;
@@ -476,14 +456,6 @@ $subcategories = $conn->query("SELECT id, subcategory_name FROM subcategories OR
                 padding: 30px 15px;
             }
 
-            .page-hero h1 {
-                font-size: 36px;
-            }
-
-            .page-hero p {
-                font-size: 16px;
-            }
-
             .product-gallery {
                 grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
                 gap: 25px;
@@ -531,12 +503,8 @@ $subcategories = $conn->query("SELECT id, subcategory_name FROM subcategories OR
     </style>
 </head>
 <body>
-    <div class="page-container">
-        <div class="page-hero">
-            <h1>Premium Collection</h1>
-            <p>Discover the finest fashion pieces curated just for you</p>
-        </div>
 
+    <div class="page-container">
         <div class="toolbar">
             <div class="search-box">
                 <form method="GET" action="Products.php">
