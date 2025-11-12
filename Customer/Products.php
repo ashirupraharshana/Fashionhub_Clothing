@@ -2,132 +2,6 @@
 if (session_status() === PHP_SESSION_NONE) session_start();
 include_once '../db_connect.php';
 
-// ====== AJAX HANDLER - MUST BE FIRST, BEFORE ANY HTML OUTPUT ======
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_add_to_cart'])) {
-    header('Content-Type: application/json');
-    
-    if (!isset($_SESSION['user_id'])) {
-        echo json_encode(['success' => false, 'message' => 'Please login first!']);
-        exit;
-    }
-
-    $user_id = $_SESSION['user_id'];
-    $product_id = $_POST['product_id'];
-    $price = $_POST['price'];
-    $quantity = 1;
-
-    // ====== CHECK PRODUCT STOCK QUANTITY ======
-    $stock_check_sql = "SELECT stock_quantity, product_name FROM products WHERE id = ?";
-    $stmt = $conn->prepare($stock_check_sql);
-    $stmt->bind_param("i", $product_id);
-    $stmt->execute();
-    $stock_result = $stmt->get_result();
-    $product = $stock_result->fetch_assoc();
-    
-    if (!$product) {
-        echo json_encode(['success' => false, 'message' => 'Product not found!']);
-        exit;
-    }
-    
-    $available_stock = $product['stock_quantity'];
-    $product_name = $product['product_name'];
-    $stmt->close();
-
-    // Check if product already exists in cart
-    $check_sql = "SELECT quantity FROM cart WHERE user_id = ? AND product_id = ?";
-    $stmt = $conn->prepare($check_sql);
-    $stmt->bind_param("ii", $user_id, $product_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-
-    if ($result->num_rows > 0) {
-        // Product exists in cart - check if we can add more
-        $cart_item = $result->fetch_assoc();
-        $current_cart_quantity = $cart_item['quantity'];
-        $new_quantity = $current_cart_quantity + 1;
-        
-        // Validate against available stock
-        if ($new_quantity > $available_stock) {
-            echo json_encode([
-                'success' => false, 
-                'message' => "Cannot add more! Only {$available_stock} units available (you already have {$current_cart_quantity} in cart)."
-            ]);
-            exit;
-        }
-        
-        // Update quantity
-        $update_sql = "UPDATE cart 
-                       SET quantity = quantity + 1
-                       WHERE user_id = ? AND product_id = ?";
-        $stmt = $conn->prepare($update_sql);
-        $stmt->bind_param("ii", $user_id, $product_id);
-        $stmt->execute();
-    } else {
-        // New product - check stock before adding
-        if ($quantity > $available_stock) {
-            echo json_encode([
-                'success' => false, 
-                'message' => "Cannot add to cart! Only {$available_stock} units available."
-            ]);
-            exit;
-        }
-        
-        // Insert new product into cart
-        $insert_sql = "INSERT INTO cart (user_id, product_id, quantity, price) 
-                       VALUES (?, ?, ?, ?)";
-        $stmt = $conn->prepare($insert_sql);
-        $stmt->bind_param("iiid", $user_id, $product_id, $quantity, $price);
-        $stmt->execute();
-    }
-
-    // Get updated cart count
-    $cart_count_sql = "SELECT SUM(quantity) as total FROM cart WHERE user_id = ?";
-    $stmt = $conn->prepare($cart_count_sql);
-    $stmt->bind_param("i", $user_id);
-    $stmt->execute();
-    $cart_count_result = $stmt->get_result();
-    $cart_count_row = $cart_count_result->fetch_assoc();
-    $cart_count = $cart_count_row['total'] ?? 0;
-
-    // Fetch cart items with calculated totals
-    $cart_items_sql = "SELECT c.id, c.product_id, c.quantity, c.price,
-                       (c.price * c.quantity) as item_total,
-                       p.product_name, p.product_photo 
-                       FROM cart c 
-                       JOIN products p ON c.product_id = p.id 
-                       WHERE c.user_id = ? 
-                       ORDER BY c.id DESC";
-    $stmt = $conn->prepare($cart_items_sql);
-    $stmt->bind_param("i", $user_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-
-    $cart_items = [];
-    while ($row = $result->fetch_assoc()) {
-        $cart_items[] = $row;
-    }
-
-    // Get cart total - Calculate from price * quantity
-    $cart_total_sql = "SELECT SUM(price * quantity) as total FROM cart WHERE user_id = ?";
-    $stmt = $conn->prepare($cart_total_sql);
-    $stmt->bind_param("i", $user_id);
-    $stmt->execute();
-    $cart_total_result = $stmt->get_result();
-    $cart_total_row = $cart_total_result->fetch_assoc();
-    $cart_total = $cart_total_row['total'] ?? 0;
-
-    echo json_encode([
-        'success' => true, 
-        'message' => 'Product added to cart successfully!', 
-        'cart_count' => $cart_count,
-        'cart_items' => $cart_items,
-        'cart_total' => $cart_total
-    ]);
-    exit;
-}
-
-// ====== NOW INCLUDE NAVBAR - AFTER AJAX HANDLER ======
-include 'Components/CustomerNavBar.php';
 
 // Redirect to login if not logged in
 if (!isset($_SESSION['user_id'])) {
@@ -138,8 +12,8 @@ if (!isset($_SESSION['user_id'])) {
 // Handle Search and Filter
 $search = "";
 $category_filter = "";
+$subcategory_filter = "";
 $gender_filter = "";
-$size_filter = "";
 $where_conditions = [];
 
 if (isset($_GET['search']) && !empty($_GET['search'])) {
@@ -152,28 +26,30 @@ if (isset($_GET['category']) && !empty($_GET['category'])) {
     $where_conditions[] = "p.category_id = $category_filter";
 }
 
+if (isset($_GET['subcategory']) && !empty($_GET['subcategory'])) {
+    $subcategory_filter = intval($_GET['subcategory']);
+    $where_conditions[] = "p.subcategory_id = $subcategory_filter";
+}
+
 if (isset($_GET['gender']) && $_GET['gender'] !== '') {
     $gender_filter = intval($_GET['gender']);
     $where_conditions[] = "p.gender = $gender_filter";
 }
 
-if (isset($_GET['size']) && !empty($_GET['size'])) {
-    $size_filter = $conn->real_escape_string($_GET['size']);
-    $where_conditions[] = "p.size = '$size_filter'";
-}
-
 $where_clause = !empty($where_conditions) ? "WHERE " . implode(" AND ", $where_conditions) : "";
 
 // Fetch products with categories
-$sql = "SELECT p.*, c.category_name 
+$sql = "SELECT p.*, c.category_name, s.subcategory_name 
         FROM products p 
         LEFT JOIN categories c ON p.category_id = c.id 
+        LEFT JOIN subcategories s ON p.subcategory_id = s.id
         $where_clause
         ORDER BY p.id DESC";
 $result = $conn->query($sql);
 
-// Get categories for filter
+// Get categories and subcategories for filter
 $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY category_name ASC");
+$subcategories = $conn->query("SELECT id, subcategory_name FROM subcategories ORDER BY subcategory_name ASC");
 ?>
 
 <!DOCTYPE html>
@@ -181,7 +57,7 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FashionHub | Products</title>
+    <title>FashionHub | Premium Collection</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
@@ -192,7 +68,7 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f8f9fa;
+            background: linear-gradient(135deg, #fafafa 0%, #f0f0f0 100%);
             padding-top: 70px;
             min-height: 100vh;
             color: #2c3e50;
@@ -201,25 +77,49 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
         .page-container {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 40px 20px;
+            padding: 50px 30px;
+        }
+
+        .page-hero {
+            text-align: center;
+            margin-bottom: 60px;
+            animation: fadeInDown 0.8s ease;
+        }
+
+        .page-hero h1 {
+            font-size: 48px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 15px;
+            letter-spacing: -1px;
+        }
+
+        .page-hero p {
+            font-size: 18px;
+            color: #7f8c8d;
+            font-weight: 500;
         }
 
         .toolbar {
             background: white;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-            margin-bottom: 40px;
+            padding: 35px 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(231, 76, 60, 0.08);
+            margin-bottom: 50px;
             display: flex;
-            gap: 15px;
+            gap: 20px;
             flex-wrap: wrap;
             align-items: center;
-            border: 1px solid #e8e8e8;
+            border: 2px solid rgba(231, 76, 60, 0.1);
+            animation: fadeInUp 0.8s ease;
         }
 
         .search-box {
             flex: 1;
-            min-width: 280px;
+            min-width: 320px;
         }
 
         .search-box form {
@@ -228,18 +128,20 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
 
         .search-box input[type="text"] {
             width: 100%;
-            padding: 14px 55px 14px 20px;
-            border: 2px solid #e8e8e8;
-            border-radius: 8px;
+            padding: 16px 60px 16px 24px;
+            border: 2px solid #f0f0f0;
+            border-radius: 50px;
             font-size: 15px;
-            transition: all 0.3s;
+            transition: all 0.3s ease;
             font-weight: 500;
+            background: #fafafa;
         }
 
         .search-box input[type="text"]:focus {
             outline: none;
             border-color: #e74c3c;
-            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+            background: white;
+            box-shadow: 0 0 0 4px rgba(231, 76, 60, 0.1);
         }
 
         .search-box button {
@@ -247,367 +149,267 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             right: 6px;
             top: 50%;
             transform: translateY(-50%);
-            background: #e74c3c;
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             border: none;
             color: white;
-            padding: 11px 20px;
-            border-radius: 6px;
+            padding: 12px 24px;
+            border-radius: 50px;
             cursor: pointer;
-            transition: all 0.3s;
-            font-weight: 600;
+            transition: all 0.3s ease;
+            font-weight: 700;
+            font-size: 14px;
         }
 
         .search-box button:hover {
-            background: #c0392b;
-            transform: translateY(-50%) scale(1.02);
+            transform: translateY(-50%) scale(1.05);
+            box-shadow: 0 5px 20px rgba(231, 76, 60, 0.4);
         }
 
         .filter-select {
-            padding: 14px 18px;
-            border: 2px solid #e8e8e8;
-            border-radius: 8px;
+            padding: 16px 20px;
+            border: 2px solid #f0f0f0;
+            border-radius: 50px;
             font-size: 15px;
             cursor: pointer;
-            background: white;
-            transition: all 0.3s;
-            min-width: 160px;
-            font-weight: 500;
+            background: #fafafa;
+            transition: all 0.3s ease;
+            min-width: 180px;
+            font-weight: 600;
             color: #2c3e50;
         }
 
         .filter-select:focus {
             outline: none;
             border-color: #e74c3c;
-            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+            background: white;
+            box-shadow: 0 0 0 4px rgba(231, 76, 60, 0.1);
         }
 
         .clear-filters {
-            padding: 14px 28px;
-            background: #2c3e50;
+            padding: 16px 32px;
+            background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%);
             color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 50px;
             font-size: 15px;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: all 0.3s ease;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
+            box-shadow: 0 4px 15px rgba(52, 73, 94, 0.3);
         }
 
         .clear-filters:hover {
-            background: #1a252f;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(44, 62, 80, 0.3);
+            transform: translateY(-3px);
+            box-shadow: 0 6px 25px rgba(52, 73, 94, 0.4);
         }
 
         .product-gallery {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 35px;
+            animation: fadeIn 1s ease;
         }
 
         .product-card {
             background: white;
-            border-radius: 16px;
+            border-radius: 10px;
             overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
             transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
-            border: 1px solid #f0f0f0;
+            cursor: pointer;
+            border: 2px solid transparent;
         }
 
         .product-card:hover {
-            transform: translateY(-12px) scale(1.02);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
+            transform: translateY(-15px) scale(1.02);
+            box-shadow: 0 25px 60px rgba(231, 76, 60, 0.2);
             border-color: rgba(231, 76, 60, 0.3);
         }
 
-        .product-image {
+        .product-image-container {
             position: relative;
             width: 100%;
-            height: 220px;
+            height: 300px;
             overflow: hidden;
             background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-bottom: 3px solid #e8e8e8;
         }
 
-        .product-image img {
+        .product-photos-slider {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        .product-photos-slider img {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .product-card:hover .product-image img {
-            transform: scale(1.12) rotate(2deg);
-        }
-
-        .product-info {
-            padding: 22px 20px;
-        }
-
-        .product-category {
-            font-size: 10px;
-            text-transform: uppercase;
-            color: #e74c3c;
-            letter-spacing: 1.3px;
-            margin-bottom: 8px;
-            font-weight: 700;
-        }
-
-        .product-name {
-            font-size: 17px;
-            font-weight: 700;
-            color: #2c3e50;
-            margin-bottom: 10px;
-            line-height: 1.35;
-            height: 46px;
-            overflow: hidden;
-        }
-
-        .product-attributes {
-            display: flex;
-            gap: 6px;
-            margin-bottom: 10px;
-            flex-wrap: wrap;
-        }
-
-        .attribute-tag {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 5px 10px;
-            background: #f8f9fa;
-            border-radius: 6px;
-            font-size: 11px;
-            color: #2c3e50;
-            font-weight: 600;
-            border: 1px solid #e8e8e8;
-        }
-
-        .product-price-section {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-
-        .product-price {
-            font-size: 24px;
-            font-weight: 800;
-            color: #e74c3c;
-        }
-
-        .product-original-price {
-            font-size: 15px;
-            color: #95a5a6;
-            text-decoration: line-through;
-            font-weight: 500;
-        }
-
-        .product-stock {
-            font-size: 12px;
-            color: #7f8c8d;
-            margin-bottom: 12px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-weight: 500;
-            padding: 6px 10px;
-            background: #f8f9fa;
-            border-radius: 6px;
-            border: 1px solid #e8e8e8;
-            width: fit-content;
-        }
-
-        .product-actions {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-top: 12px;
-        }
-
-        .action-button {
-            padding: 11px 14px;
-            border: none;
-            border-radius: 8px;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-        }
-
-        .add-cart-btn {
-            background: linear-gradient(135deg, #2c3e50 0%, #1a252f 100%);
-            color: white;
-        }
-
-        .add-cart-btn:hover:not(:disabled) {
-            transform: translateY(-3px);
-            box-shadow: 0 6px 20px rgba(44, 62, 80, 0.35);
-        }
-
-        .order-now-btn {
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-            color: white;
-        }
-
-        .order-now-btn:hover:not(:disabled) {
-            transform: translateY(-3px);
-            box-shadow: 0 6px 20px rgba(231, 76, 60, 0.4);
-        }
-
-        .action-button:disabled {
-            background: #95a5a6;
-            cursor: not-allowed;
-            opacity: 0.6;
-        }
-
-        .discount-badge {
             position: absolute;
-            top: 12px;
-            left: 12px;
-            background: #e74c3c;
-            color: white;
-            padding: 7px 12px;
-            border-radius: 8px;
-            font-size: 12px;
-            font-weight: 700;
+            top: 0;
+            left: 0;
+            opacity: 0;
+            transition: opacity 0.6s ease;
+        }
+
+        .product-photos-slider img.active {
+            opacity: 1;
+            z-index: 1;
+        }
+
+        .photo-indicators {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 6px;
             z-index: 10;
         }
+
+        .photo-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .photo-indicator.active {
+            background: white;
+            width: 24px;
+            border-radius: 4px;
+        }
+
+
 
         .gender-badge {
             position: absolute;
-            top: 12px;
-            right: 12px;
-            padding: 7px 12px;
-            border-radius: 8px;
+            top: 16px;
+            left: 16px;
+            padding: 8px 16px;
+            border-radius: 50px;
             font-size: 11px;
-            font-weight: 600;
+            font-weight: 700;
             z-index: 10;
+            backdrop-filter: blur(10px);
+            border: 2px solid white;
+        }
+
+        .gender-badge.unisex {
+            background: rgba(149, 165, 166, 0.9);
+            color: white;
         }
 
         .gender-badge.men {
-            background: #3498db;
+            background: rgba(52, 152, 219, 0.9);
             color: white;
         }
 
         .gender-badge.women {
-            background: #e91e63;
+            background: rgba(233, 30, 99, 0.9);
             color: white;
         }
 
-        .stock-badge {
-            position: absolute;
-            bottom: 12px;
-            left: 12px;
-            padding: 6px 12px;
-            border-radius: 6px;
+        .product-info {
+            padding: 15px 24px;
+        }
+
+        .product-category {
             font-size: 11px;
-            font-weight: 600;
-            z-index: 10;
+            text-transform: uppercase;
+            color: #e74c3c;
+            letter-spacing: 1.5px;
+            margin-bottom: 10px;
+            font-weight: 800;
         }
 
-        .stock-badge.in-stock {
-            background: #2ecc71;
-            color: white;
-        }
-
-        .stock-badge.low-stock {
-            background: #f1c40f;
+        .product-name {
+            font-size: 20px;
+            font-weight: 800;
             color: #2c3e50;
+            margin-bottom: 12px;
+            line-height: 1.4;
+            height: 30px;
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
         }
 
-        .stock-badge.out-of-stock {
-            background: #95a5a6;
-            color: white;
-        }
-
-        .toast {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            background: white;
-            padding: 18px 24px;
-            border-radius: 10px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        .product-sizes {
             display: flex;
-            align-items: center;
-            gap: 12px;
-            transform: translateX(450px);
-            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            z-index: 3000;
-            min-width: 320px;
-            max-width: 450px;
-            border: 1px solid #e8e8e8;
-            opacity: 0;
-            visibility: hidden;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
         }
 
-        .toast.show {
-            transform: translateX(0);
-            opacity: 1;
-            visibility: visible;
+        .size-tag {
+            padding: 6px 12px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
+            border-radius: 8px;
+            font-size: 12px;
+            color: #2c3e50;
+            font-weight: 700;
+            border: 2px solid #e8e8e8;
+            transition: all 0.3s ease;
         }
 
-        .toast.success {
-            border-left: 4px solid #27ae60;
-        }
-
-        .toast.error {
-            border-left: 4px solid #e74c3c;
-        }
-
-        .toast i {
-            font-size: 24px;
-        }
-
-        .toast.success i {
-            color: #27ae60;
-        }
-
-        .toast.error i {
+        .product-card:hover .size-tag {
+            border-color: #e74c3c;
+            background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
             color: #e74c3c;
         }
 
-        .toast-message {
-            flex: 1;
-            color: #2c3e50;
-            font-weight: 600;
-            font-size: 14px;
-            line-height: 1.4;
-            word-wrap: break-word;
+        .product-price-section {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            margin-bottom: 5px;
         }
 
-        .toast-close {
-            background: transparent;
-            border: none;
+        .product-price {
+            font-size: 25px;
+            font-weight: 900;
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .price-label {
+            font-size: 12px;
             color: #95a5a6;
-            font-size: 20px;
-            cursor: pointer;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
-        .spinner {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 0.6s linear infinite;
+        .product-photos-count {
+            display: none;
         }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        .click-hint {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, rgba(231, 76, 60, 0.95) 0%, rgba(231, 76, 60, 0) 100%);
+            color: white;
+            padding: 40px 20px 20px;
+            text-align: center;
+            font-weight: 700;
+            font-size: 14px;
+            opacity: 0;
+            transition: all 0.4s ease;
+            pointer-events: none;
+        }
+
+        .product-card:hover .click-hint {
+            opacity: 1;
         }
 
         .empty-state {
@@ -615,46 +417,133 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             padding: 100px 20px;
             grid-column: 1 / -1;
             background: white;
-            border-radius: 12px;
+            border-radius: 24px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
         }
 
         .empty-state i {
             font-size: 80px;
             color: #e8e8e8;
-            margin-bottom: 25px;
+            margin-bottom: 30px;
         }
 
         .empty-state h3 {
-            font-size: 28px;
+            font-size: 32px;
             color: #2c3e50;
-            margin-bottom: 12px;
+            margin-bottom: 15px;
+            font-weight: 800;
+        }
+
+        .empty-state p {
+            font-size: 16px;
+            color: #7f8c8d;
+            font-weight: 500;
+        }
+
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
         }
 
         @media (max-width: 768px) {
+            .page-container {
+                padding: 30px 15px;
+            }
+
+            .page-hero h1 {
+                font-size: 36px;
+            }
+
+            .page-hero p {
+                font-size: 16px;
+            }
+
             .product-gallery {
-                grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
                 gap: 25px;
             }
             
             .toolbar {
                 flex-direction: column;
+                padding: 25px 20px;
             }
 
             .search-box {
                 width: 100%;
             }
+
+            .filter-select,
+            .clear-filters {
+                width: 100%;
+            }
         }
+        .size-tag.out-of-stock {
+    text-decoration: line-through;
+    background: linear-gradient(135deg, #ecf0f1 0%, #bdc3c7 100%);
+    color: #687070ff;
+    cursor: not-allowed;
+    position: relative;
+}
+
+.size-tag.out-of-stock::after {
+    content: 'Out of Stock';
+    position: absolute;
+    bottom: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    white-space: nowrap;
+    color: #e74c3c;
+    font-weight: 600;
+}
+
+.product-card:hover .size-tag.out-of-stock {
+    border-color: #bdc3c7;
+    background: linear-gradient(135deg, #ecf0f1 0%, #bdc3c7 100%);
+    color: #95a5a6;
+}
     </style>
 </head>
 <body>
     <div class="page-container">
+        <div class="page-hero">
+            <h1>Premium Collection</h1>
+            <p>Discover the finest fashion pieces curated just for you</p>
+        </div>
+
         <div class="toolbar">
             <div class="search-box">
                 <form method="GET" action="Products.php">
-                    <input type="text" name="search" placeholder="Search products..." value="<?php echo htmlspecialchars($search); ?>">
+                    <input type="text" name="search" placeholder="Search your perfect style..." value="<?php echo htmlspecialchars($search); ?>">
                     <input type="hidden" name="category" value="<?php echo htmlspecialchars($category_filter); ?>">
+                    <input type="hidden" name="subcategory" value="<?php echo htmlspecialchars($subcategory_filter); ?>">
                     <input type="hidden" name="gender" value="<?php echo htmlspecialchars($gender_filter); ?>">
-                    <input type="hidden" name="size" value="<?php echo htmlspecialchars($size_filter); ?>">
                     <button type="submit"><i class="fas fa-search"></i></button>
                 </form>
             </div>
@@ -671,26 +560,26 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
                     <?php endwhile; ?>
                 </select>
 
-                <select name="gender" class="filter-select" onchange="this.form.submit()">
-                    <option value="">All Genders</option>
-                    <option value="0" <?php echo $gender_filter === '0' || $gender_filter === 0 ? 'selected' : ''; ?>>Men</option>
-                    <option value="1" <?php echo $gender_filter === '1' || $gender_filter === 1 ? 'selected' : ''; ?>>Women</option>
+                <select name="subcategory" class="filter-select" onchange="this.form.submit()">
+                    <option value="">All Subcategories</option>
+                    <?php while ($sub = $subcategories->fetch_assoc()): ?>
+                        <option value="<?php echo $sub['id']; ?>" <?php echo $subcategory_filter == $sub['id'] ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($sub['subcategory_name']); ?>
+                        </option>
+                    <?php endwhile; ?>
                 </select>
 
-                <select name="size" class="filter-select" onchange="this.form.submit()">
-                    <option value="">All Sizes</option>
-                    <option value="S" <?php echo $size_filter == 'S' ? 'selected' : ''; ?>>S</option>
-                    <option value="M" <?php echo $size_filter == 'M' ? 'selected' : ''; ?>>M</option>
-                    <option value="L" <?php echo $size_filter == 'L' ? 'selected' : ''; ?>>L</option>
-                    <option value="XL" <?php echo $size_filter == 'XL' ? 'selected' : ''; ?>>XL</option>
-                    <option value="XXL" <?php echo $size_filter == 'XXL' ? 'selected' : ''; ?>>XXL</option>
-                    <option value="XXXL" <?php echo $size_filter == 'XXXL' ? 'selected' : ''; ?>>XXXL</option>
+                <select name="gender" class="filter-select" onchange="this.form.submit()">
+                    <option value="">All Genders</option>
+                    <option value="0" <?php echo $gender_filter === '0' || $gender_filter === 0 ? 'selected' : ''; ?>>Unisex</option>
+                    <option value="1" <?php echo $gender_filter === '1' || $gender_filter === 1 ? 'selected' : ''; ?>>Men</option>
+                    <option value="2" <?php echo $gender_filter === '2' || $gender_filter === 2 ? 'selected' : ''; ?>>Women</option>
                 </select>
             </form>
 
-            <?php if ($search || $category_filter || $gender_filter !== '' || $size_filter): ?>
+            <?php if ($search || $category_filter || $subcategory_filter || $gender_filter !== ''): ?>
                 <button class="clear-filters" onclick="window.location.href='Products.php'">
-                    <i class="fas fa-times"></i> Clear Filters
+                    <i class="fas fa-times"></i> Clear All
                 </button>
             <?php endif; ?>
         </div>
@@ -699,96 +588,107 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
             <?php if ($result->num_rows > 0): ?>
                 <?php while($row = $result->fetch_assoc()): ?>
                     <?php 
-                    $stock_status = '';
-                    $stock_class = '';
-                    $is_out_of_stock = false;
+                    // Get all photos for this product
+                    $photosStmt = $conn->prepare("SELECT photo FROM photos WHERE product_id = ? ORDER BY id");
+                    $photosStmt->bind_param("i", $row['id']);
+                    $photosStmt->execute();
+                    $photosResult = $photosStmt->get_result();
+                    $photos = [];
+                    while ($photoRow = $photosResult->fetch_assoc()) {
+                        $photos[] = $photoRow['photo'];
+                    }
+                    $photosStmt->close();
                     
-                    if ($row['stock_quantity'] == 0) {
-                        $stock_status = 'Out of Stock';
-                        $stock_class = 'out-of-stock';
-                        $is_out_of_stock = true;
-                    } elseif ($row['stock_quantity'] <= 10) {
-                        $stock_status = 'Low Stock';
-                        $stock_class = 'low-stock';
-                    } else {
-                        $stock_status = 'In Stock';
-                        $stock_class = 'in-stock';
+                    // Get sizes
+ // Get sizes with quantity
+$sizesStmt = $conn->prepare("SELECT size, quantity FROM product_sizes WHERE product_id = ? ORDER BY 
+    CASE 
+        WHEN size = 'S' THEN 1
+        WHEN size = 'M' THEN 2
+        WHEN size = 'L' THEN 3
+        WHEN size = 'XL' THEN 4
+        WHEN size = 'XXL' THEN 5
+        WHEN size = 'XXXL' THEN 6
+        ELSE 7
+    END");
+$sizesStmt->bind_param("i", $row['id']);
+$sizesStmt->execute();
+$sizesResult = $sizesStmt->get_result();
+$sizes = [];
+while ($sizeRow = $sizesResult->fetch_assoc()) {
+    $sizes[] = [
+        'size' => $sizeRow['size'],
+        'quantity' => $sizeRow['quantity']
+    ];
+}
+$sizesStmt->close();
+                    
+                    $genderLabel = '';
+                    $genderClass = '';
+                    if ($row['gender'] == 0) {
+                        $genderLabel = 'Unisex';
+                        $genderClass = 'unisex';
+                    } elseif ($row['gender'] == 1) {
+                        $genderLabel = 'Men';
+                        $genderClass = 'men';
+                    } elseif ($row['gender'] == 2) {
+                        $genderLabel = 'Women';
+                        $genderClass = 'women';
                     }
                     
-                    $final_price = $row['price'] - ($row['price'] * $row['discount'] / 100);
+                    $uniqueId = 'product-' . $row['id'];
                     ?>
-                    <div class="product-card">
-                        <?php if ($row['discount'] > 0): ?>
-                            <div class="discount-badge"><?php echo $row['discount']; ?>% OFF</div>
-                        <?php endif; ?>
-                        
-                        <?php if ($row['gender'] !== null): ?>
-                            <div class="gender-badge <?php echo $row['gender'] == 0 ? 'men' : 'women'; ?>">
-                                <?php echo $row['gender'] == 0 ? 'Men' : 'Women'; ?>
+                    <div class="product-card" onclick="window.location.href='OrderNow.php?product_id=<?php echo $row['id']; ?>'">
+                        <div class="product-image-container">
+                            <div class="product-photos-slider" id="<?php echo $uniqueId; ?>">
+                                <?php if (!empty($photos)): ?>
+                                    <?php foreach ($photos as $index => $photo): ?>
+                                        <img src="data:image/jpeg;base64,<?php echo $photo; ?>" 
+                                             alt="<?php echo htmlspecialchars($row['product_name']); ?>"
+                                             class="<?php echo $index === 0 ? 'active' : ''; ?>">
+                                    <?php endforeach; ?>
+                                    
+                                    <?php if (count($photos) > 1): ?>
+                                    <div class="photo-indicators">
+                                        <?php for ($i = 0; $i < count($photos); $i++): ?>
+                                            <div class="photo-indicator <?php echo $i === 0 ? 'active' : ''; ?>"></div>
+                                        <?php endfor; ?>
+                                    </div>
+                                    <?php endif; ?>
+                                <?php else: ?>
+                                    <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #bdc3c7; font-size: 48px;">
+                                        <i class="fas fa-image"></i>
+                                    </div>
+                                <?php endif; ?>
                             </div>
-                        <?php endif; ?>
-                        
-                        <div class="product-image">
-                            <div class="stock-badge <?php echo $stock_class; ?>"><?php echo $stock_status; ?></div>
                             
-                            <?php if (!empty($row['product_photo'])): ?>
-                                <img src="data:image/jpeg;base64,<?php echo $row['product_photo']; ?>" 
-                                     alt="<?php echo htmlspecialchars($row['product_name']); ?>">
-                            <?php else: ?>
-                                <i class="fas fa-box"></i>
+                            <?php if ($genderLabel): ?>
+                                <div class="gender-badge <?php echo $genderClass; ?>">
+                                    <?php echo $genderLabel; ?>
+                                </div>
                             <?php endif; ?>
+                            
+                            <div class="click-hint">
+                                <i class="fas fa-hand-pointer"></i> Click to View Details
+                            </div>
                         </div>
                         
                         <div class="product-info">
                             <div class="product-category"><?php echo htmlspecialchars($row['category_name']); ?></div>
                             <div class="product-name"><?php echo htmlspecialchars($row['product_name']); ?></div>
                             
-                            <?php if ($row['gender'] !== null || $row['size'] !== null): ?>
-                            <div class="product-attributes">
-                                <?php if ($row['gender'] !== null): ?>
-                                <span class="attribute-tag">
-                                    <i class="fas fa-venus-mars"></i>
-                                    <?php echo $row['gender'] == 0 ? 'Men' : 'Women'; ?>
-                                </span>
-                                <?php endif; ?>
-                                
-                                <?php if ($row['size'] !== null): ?>
-                                <span class="attribute-tag">
-                                    <i class="fas fa-ruler"></i>
-                                    <?php echo htmlspecialchars($row['size']); ?>
-                                </span>
-                                <?php endif; ?>
-                            </div>
-                            <?php endif; ?>
-                            
+     <?php if (!empty($sizes)): ?>
+<div class="product-sizes">
+    <?php foreach ($sizes as $sizeData): ?>
+        <span class="size-tag <?php echo $sizeData['quantity'] == 0 ? 'out-of-stock' : ''; ?>">
+            <?php echo htmlspecialchars($sizeData['size']); ?>
+        </span>
+    <?php endforeach; ?>
+</div>
+<?php endif; ?>
                             <div class="product-price-section">
-                                <div class="product-price">Rs. <?php echo number_format($final_price, 2); ?></div>
-                                <?php if ($row['discount'] > 0): ?>
-                                    <div class="product-original-price">Rs. <?php echo number_format($row['price'], 2); ?></div>
-                                <?php endif; ?>
-                            </div>
-                            
-                            <div class="product-stock">
-                                <i class="fas fa-cube"></i> <?php echo $row['stock_quantity']; ?> units available
-                            </div>
-                            
-                            <div class="product-actions">
-                                <button type="button" 
-                                        class="action-button add-cart-btn" 
-                                        onclick="<?php echo $is_out_of_stock ? '' : 'addToCart(' . $row['id'] . ', ' . $final_price . ', this)'; ?>"
-                                        <?php echo $is_out_of_stock ? 'disabled' : ''; ?>
-                                        data-product-id="<?php echo $row['id']; ?>">
-                                    <i class="fas fa-<?php echo $is_out_of_stock ? 'ban' : 'shopping-cart'; ?>"></i>
-                                    <span><?php echo $is_out_of_stock ? 'Unavailable' : 'Add to Cart'; ?></span>
-                                </button>
-                                
-                                <button type="button" 
-                                        class="action-button order-now-btn" 
-                                        onclick="<?php echo $is_out_of_stock ? '' : 'orderNow(' . $row['id'] . ', ' . $final_price . ')'; ?>"
-                                        <?php echo $is_out_of_stock ? 'disabled' : ''; ?>>
-                                    <i class="fas fa-<?php echo $is_out_of_stock ? 'ban' : 'bolt'; ?>"></i>
-                                    <span><?php echo $is_out_of_stock ? 'Unavailable' : 'Order Now'; ?></span>
-                                </button>
+                                <span class="price-label">Starting from</span>
+                                <div class="product-price">Rs. <?php echo number_format($row['price'], 2); ?></div>
                             </div>
                         </div>
                     </div>
@@ -797,229 +697,42 @@ $categories = $conn->query("SELECT id, category_name FROM categories ORDER BY ca
                 <div class="empty-state">
                     <i class="fas fa-search"></i>
                     <h3>No Products Found</h3>
-                    <p>Try adjusting your filters or search terms</p>
+                    <p>Try adjusting your filters or search terms to discover more items</p>
                 </div>
             <?php endif; ?>
         </div>
     </div>
 
-    <div class="toast" id="toast">
-        <i class="fas fa-check-circle"></i>
-        <div class="toast-message"></div>
-        <button class="toast-close" onclick="hideToast()">
-            <i class="fas fa-times"></i>
-        </button>
-    </div>
+    <?php include 'Components/Footer.php'; ?>
 
     <script>
-        function addToCart(productId, price, button) {
-            <?php if (!isset($_SESSION['user_id'])): ?>
-                window.location.href = '../index.php';
-                return;
-            <?php endif; ?>
-
-            button.disabled = true;
-            const originalHTML = button.innerHTML;
-            button.innerHTML = '<span class="spinner"></span> Adding...';
-
-            const formData = new FormData();
-            formData.append('ajax_add_to_cart', '1');
-            formData.append('product_id', productId);
-            formData.append('price', price);
-
-            fetch('Products.php', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showToast(data.message, 'success');
-                    updateCartBadge(data.cart_count);
-                    updateCartDropdown(data.cart_items, data.cart_total, data.cart_count);
-                } else {
-                    showToast(data.message, 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showToast('Failed to add product to cart', 'error');
-            })
-            .finally(() => {
-                button.disabled = false;
-                button.innerHTML = originalHTML;
-            });
-        }
-
-        function updateCartBadge(count) {
-            const badge = document.querySelector('.icon-button .badge');
-            if (badge) {
-                badge.textContent = count;
-                badge.style.display = count > 0 ? 'block' : 'none';
-            } else if (count > 0) {
-                const cartButton = document.getElementById('cartToggle');
-                if (cartButton) {
-                    const newBadge = document.createElement('span');
-                    newBadge.className = 'badge';
-                    newBadge.id = 'cartBadge';
-                    newBadge.textContent = count;
-                    cartButton.appendChild(newBadge);
-                }
-            }
-        }
-
-        function updateCartDropdown(cartItems, cartTotal, cartCount) {
-            if (typeof window.updateCartDisplay === 'function') {
-                window.updateCartDisplay({
-                    cart_count: cartCount,
-                    cart_items: cartItems,
-                    cart_total: cartTotal
-                });
-                return;
-            }
+        // Auto-rotate product photos
+        document.addEventListener('DOMContentLoaded', function() {
+            const sliders = document.querySelectorAll('.product-photos-slider');
             
-            const cartBody = document.querySelector('.cart-dropdown-body');
-            const cartFooter = document.querySelector('.cart-dropdown-footer');
-            const cartCountBadge = document.querySelector('.cart-count-badge');
-            const cartBadge = document.getElementById('cartBadge');
-            
-            if (!cartBody) return;
-            
-            if (cartCountBadge) {
-                cartCountBadge.textContent = cartCount;
-                cartCountBadge.style.display = cartCount > 0 ? 'inline-block' : 'none';
-            }
-            
-            if (cartBadge) {
-                cartBadge.textContent = cartCount;
-                cartBadge.style.display = cartCount > 0 ? 'block' : 'none';
-            }
-            
-            cartBody.innerHTML = '';
-            
-            if (!cartItems || cartItems.length === 0) {
-                cartBody.innerHTML = `
-                    <div class="cart-empty">
-                        <i class="fas fa-shopping-cart"></i>
-                        <p><strong>Your cart is empty</strong></p>
-                        <p>Add some products to get started!</p>
-                    </div>
-                `;
-                if (cartFooter) cartFooter.style.display = 'none';
-            } else {
-                cartItems.forEach(item => {
-                    const itemTotal = parseFloat(item.price) * parseInt(item.quantity);
-                    
-                    const cartItem = document.createElement('div');
-                    cartItem.className = 'cart-item';
-                    cartItem.innerHTML = `
-                        <img src="data:image/jpeg;base64,${item.product_photo}" 
-                             alt="${escapeHtml(item.product_name)}" 
-                             class="cart-item-image">
-                        <div class="cart-item-details">
-                            <div class="cart-item-name">${escapeHtml(item.product_name)}</div>
-                            <div class="cart-item-info">
-                                <span class="cart-item-quantity">Qty: ${item.quantity}</span>
-                                <span class="cart-item-price">Rs. ${itemTotal.toFixed(2)}</span>
-                            </div>
-                        </div>
-                        <form method="POST" style="display: inline;">
-                            <input type="hidden" name="action" value="delete_cart_item">
-                            <input type="hidden" name="cart_id" value="${item.id}">
-                            <button type="submit" class="delete-cart-item" title="Remove item" onclick="return confirm('Remove this item from cart?')">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </form>
-                    `;
-                    cartBody.appendChild(cartItem);
-                });
+            sliders.forEach(slider => {
+                const images = slider.querySelectorAll('img');
+                const indicators = slider.querySelectorAll('.photo-indicator');
                 
-                if (cartFooter) {
-                    cartFooter.style.display = 'block';
-                    const totalAmountSpan = cartFooter.querySelector('.cart-subtotal-amount');
-                    if (totalAmountSpan) {
-                        totalAmountSpan.textContent = 'Rs. ' + parseFloat(cartTotal).toFixed(2);
+                if (images.length <= 1) return;
+                
+                let currentIndex = 0;
+                
+                setInterval(() => {
+                    images[currentIndex].classList.remove('active');
+                    if (indicators.length > 0) {
+                        indicators[currentIndex].classList.remove('active');
                     }
-                }
-            }
-        }
-
-        function escapeHtml(text) {
-            const map = {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;'
-            };
-            return text.replace(/[&<>"']/g, m => map[m]);
-        }
-
-        let toastTimeout;
-
-        function showToast(message, type = 'success') {
-            const toast = document.getElementById('toast');
-            const icon = toast.querySelector('i');
-            const messageEl = toast.querySelector('.toast-message');
-
-            console.log('showToast called:', message, type);
-
-            // Clear any existing timeout
-            if (toastTimeout) {
-                clearTimeout(toastTimeout);
-                toastTimeout = null;
-            }
-
-            // Force hide first
-            toast.classList.remove('show');
-            
-            // Force browser reflow to ensure animation restarts
-            void toast.offsetWidth;
-
-            // Update content after a brief moment
-            setTimeout(() => {
-                messageEl.textContent = message;
-                toast.className = `toast ${type}`;
-
-                if (type === 'success') {
-                    icon.className = 'fas fa-check-circle';
-                } else if (type === 'error') {
-                    icon.className = 'fas fa-exclamation-circle';
-                }
-
-                // Show toast
-                toast.classList.add('show');
-                console.log('Toast shown with class:', toast.className);
-
-                // Auto-hide after 5 seconds
-                toastTimeout = setTimeout(() => {
-                    console.log('Auto-hiding toast');
-                    hideToast();
-                }, 5000);
-            }, 50);
-        }
-
-        function hideToast() {
-            console.log('hideToast called');
-            const toast = document.getElementById('toast');
-            toast.classList.remove('show');
-            
-            // Clear timeout when manually closed
-            if (toastTimeout) {
-                clearTimeout(toastTimeout);
-                toastTimeout = null;
-            }
-        }
-
-        function orderNow(productId, price) {
-            <?php if (!isset($_SESSION['user_id'])): ?>
-                window.location.href = '/fashionhub/Homepage.php';
-                return;
-            <?php endif; ?>
-            
-            window.location.href = 'OrderNow.php?product_id=' + productId;
-        }
+                    
+                    currentIndex = (currentIndex + 1) % images.length;
+                    
+                    images[currentIndex].classList.add('active');
+                    if (indicators.length > 0) {
+                        indicators[currentIndex].classList.add('active');
+                    }
+                }, 3000);
+            });
+        });
     </script>
-      <?php include 'Components/Footer.php'; ?>
 </body>
 </html>

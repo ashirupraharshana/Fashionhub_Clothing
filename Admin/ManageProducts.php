@@ -2,22 +2,55 @@
 include '../db_connect.php';
 session_start();
 
-// Handle AJAX requests for product sizes
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_sizes' && isset($_GET['id'])) {
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_details' && isset($_GET['id'])) {
     header('Content-Type: application/json');
     $product_id = intval($_GET['id']);
     
-    $stmt = $conn->prepare("SELECT id, size, quantity, price, discount FROM product_sizes WHERE product_id = ?");
+    $stmt = $conn->prepare("SELECT p.*, c.category_name, s.subcategory_name 
+              FROM products p 
+              LEFT JOIN categories c ON p.category_id = c.id 
+              LEFT JOIN subcategories s ON p.subcategory_id = s.id
+              WHERE p.id = ?");
     $stmt->bind_param("i", $product_id);
     $stmt->execute();
     $result = $stmt->get_result();
     
-    $sizes = [];
-    while ($row = $result->fetch_assoc()) {
-        $sizes[] = $row;
+    if ($result->num_rows > 0) {
+        $product = $result->fetch_assoc();
+        
+        // Get photos with size information AND photo ID
+        $photosStmt = $conn->prepare("SELECT id, photo, size_id FROM photos WHERE product_id = ?");
+        $photosStmt->bind_param("i", $product_id);
+        $photosStmt->execute();
+        $photosResult = $photosStmt->get_result();
+        $photos = [];
+        while ($photo = $photosResult->fetch_assoc()) {
+            $photos[] = $photo;
+        }
+        $product['photos'] = $photos;
+        $photosStmt->close();
+        
+        // Get sizes with their photos
+        $sizesStmt = $conn->prepare("SELECT id, size, quantity, price, discount FROM product_sizes WHERE product_id = ?");
+        $sizesStmt->bind_param("i", $product_id);
+        $sizesStmt->execute();
+        $sizesResult = $sizesStmt->get_result();
+        $sizes = [];
+        while ($size = $sizesResult->fetch_assoc()) {
+            // Get photos for this specific size
+            $size['photos'] = array_filter($photos, function($p) use ($size) {
+                return $p['size_id'] == $size['id'];
+            });
+            $size['photos'] = array_values($size['photos']); // Reindex array
+            $sizes[] = $size;
+        }
+        $product['sizes'] = $sizes;
+        $sizesStmt->close();
+        
+        echo json_encode($product);
+    } else {
+        echo json_encode(['error' => 'Product not found']);
     }
-    
-    echo json_encode($sizes);
     $stmt->close();
     exit;
 }
@@ -71,8 +104,23 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_details' && isset($_GET['id']
     exit;
 }
 
-// Function to compress and resize image
-function compressImage($source, $quality = 75, $maxWidth = 800, $maxHeight = 800) {
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'delete_photo' && isset($_GET['photo_id'])) {
+    header('Content-Type: application/json');
+    $photo_id = intval($_GET['photo_id']);
+    
+    $stmt = $conn->prepare("DELETE FROM photos WHERE id = ?");
+    $stmt->bind_param("i", $photo_id);
+    
+    if ($stmt->execute()) {
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['success' => false, 'error' => $conn->error]);
+    }
+    $stmt->close();
+    exit;
+}
+// Enhanced function to compress and resize image
+function compressImage($source, $quality = 60, $maxWidth = 600, $maxHeight = 600) {
     if (!extension_loaded('gd')) {
         return false;
     }
@@ -106,14 +154,10 @@ function compressImage($source, $quality = 75, $maxWidth = 800, $maxHeight = 800
     $width = imagesx($image);
     $height = imagesy($image);
     
+    // Always resize to ensure smaller file size
     $ratio = min($maxWidth / $width, $maxHeight / $height);
-    if ($ratio < 1) {
-        $newWidth = floor($width * $ratio);
-        $newHeight = floor($height * $ratio);
-    } else {
-        $newWidth = $width;
-        $newHeight = $height;
-    }
+    $newWidth = floor($width * $ratio);
+    $newHeight = floor($height * $ratio);
     
     $newImage = imagecreatetruecolor($newWidth, $newHeight);
     
@@ -132,6 +176,11 @@ function compressImage($source, $quality = 75, $maxWidth = 800, $maxHeight = 800
     
     imagedestroy($image);
     imagedestroy($newImage);
+    
+    // If still too large (over 500KB), compress more aggressively
+    if (strlen($imageData) > 512000 && $quality > 40) {
+        return compressImage($source, $quality - 10, $maxWidth, $maxHeight);
+    }
     
     return $imageData;
 }
@@ -166,47 +215,67 @@ if (isset($_POST['add_product'])) {
                 $size_id = $stmt2->insert_id;
                 $stmt2->close();
 
-                // Handle photos for this size
-                if (isset($_FILES['size_photos']['tmp_name'][$i]) && is_array($_FILES['size_photos']['tmp_name'][$i])) {
-                    foreach ($_FILES['size_photos']['tmp_name'][$i] as $key => $tmp_name) {
-                        if ($_FILES['size_photos']['error'][$i][$key] === 0) {
-                            if ($_FILES['size_photos']['size'][$i][$key] > 5242880) {
-                                continue;
-                            }
-                            
-                            $finfo = finfo_open(FILEINFO_MIME_TYPE);
-                            $mime = finfo_file($finfo, $tmp_name);
-                            finfo_close($finfo);
-                            
-                            $allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
-                            if (!in_array($mime, $allowed_types)) {
-                                continue;
-                            }
-                            
-                            if (extension_loaded('gd')) {
-                                $compressedImage = compressImage($tmp_name, 75, 800, 800);
-                                if ($compressedImage) {
-                                    $base64Image = base64_encode($compressedImage);
-                                } else {
-                                    $imageData = file_get_contents($tmp_name);
-                                    $base64Image = base64_encode($imageData);
-                                }
-                            } else {
-                                $imageData = file_get_contents($tmp_name);
-                                $base64Image = base64_encode($imageData);
-                            }
-
-                            $stmt3 = $conn->prepare("INSERT INTO photos (product_id, size_id, photo) VALUES (?, ?, ?)");
-                            $stmt3->bind_param("iis", $product_id, $size_id, $base64Image);
-                            $stmt3->execute();
-                            $stmt3->close();
+             // Handle photos for this size (OPTIMIZED VERSION)
+if (isset($_FILES['size_photos']['tmp_name'][$i]) && is_array($_FILES['size_photos']['tmp_name'][$i])) {
+    foreach ($_FILES['size_photos']['tmp_name'][$i] as $key => $tmp_name) {
+        if ($_FILES['size_photos']['error'][$i][$key] === 0) {
+            // Check file size - skip if over 10MB
+            if ($_FILES['size_photos']['size'][$i][$key] > 10485760) {
+                continue;
+            }
+            
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mime = finfo_file($finfo, $tmp_name);
+            finfo_close($finfo);
+            
+            $allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+            if (!in_array($mime, $allowed_types)) {
+                continue;
+            }
+            
+            // Compress image more aggressively
+            if (extension_loaded('gd')) {
+                $compressedImage = compressImage($tmp_name, 60, 600, 600);
+                if ($compressedImage) {
+                    $base64Image = base64_encode($compressedImage);
+                    
+                    // Check if base64 is too large (over 1MB)
+                    if (strlen($base64Image) > 1048576) {
+                        // Try even more compression
+                        $compressedImage = compressImage($tmp_name, 50, 500, 500);
+                        if ($compressedImage) {
+                            $base64Image = base64_encode($compressedImage);
                         }
                     }
+                } else {
+                    $imageData = file_get_contents($tmp_name);
+                    $base64Image = base64_encode($imageData);
                 }
+            } else {
+                $imageData = file_get_contents($tmp_name);
+                $base64Image = base64_encode($imageData);
+            }
+            
+            // Only insert if the base64 string is reasonable size (under 2MB)
+            if (strlen($base64Image) < 2097152) {
+                $stmt3 = $conn->prepare("INSERT INTO photos (product_id, size_id, photo) VALUES (?, ?, ?)");
+                $stmt3->bind_param("iis", $product_id, $size_id, $base64Image);
+                
+                try {
+                    $stmt3->execute();
+                } catch (mysqli_sql_exception $e) {
+                    // Log error but continue with other photos
+                    error_log("Failed to insert photo: " . $e->getMessage());
+                }
+                
+                $stmt3->close();
             }
         }
-
-        $_SESSION['success'] = "✅ Product, sizes, and size-specific photos added successfully!";
+    }
+}
+            }
+        }
+        $_SESSION['success'] = " Product, sizes, and size-specific photos added successfully!";
     } else {
         $_SESSION['error'] = "Failed to add product: " . $conn->error;
     }
@@ -243,7 +312,8 @@ if (isset($_GET['delete'])) {
     exit;
 }
 
-// Handle Edit Product
+// Handle Edit Product - FIXED VERSION
+// Handle Edit Product - COMPLETELY FIXED VERSION
 if (isset($_POST['edit_product'])) {
     $id = intval($_POST['product_id']);
     $category_id = intval($_POST['edit_category_id']);
@@ -258,10 +328,39 @@ if (isset($_POST['edit_product'])) {
     
     if ($stmt->execute()) {
         if (!empty($_POST['edit_sizes']) && is_array($_POST['edit_sizes'])) {
+            // Step 1: Get ALL existing photos with their size information BEFORE deleting sizes
+            $existingPhotosStmt = $conn->prepare("
+                SELECT p.id as photo_id, p.photo, p.size_id, ps.size 
+                FROM photos p 
+                INNER JOIN product_sizes ps ON p.size_id = ps.id 
+                WHERE p.product_id = ?
+            ");
+            $existingPhotosStmt->bind_param("i", $id);
+            $existingPhotosStmt->execute();
+            $existingPhotosResult = $existingPhotosStmt->get_result();
+            
+            // Store photos grouped by size name
+            $photosBySize = [];
+            while ($row = $existingPhotosResult->fetch_assoc()) {
+                $sizeName = $row['size'];
+                if (!isset($photosBySize[$sizeName])) {
+                    $photosBySize[$sizeName] = [];
+                }
+                $photosBySize[$sizeName][] = [
+                    'photo_id' => $row['photo_id'],
+                    'photo' => $row['photo']
+                ];
+            }
+            $existingPhotosStmt->close();
+            
+            // Step 2: Delete all existing sizes
             $deleteStmt = $conn->prepare("DELETE FROM product_sizes WHERE product_id = ?");
             $deleteStmt->bind_param("i", $id);
             $deleteStmt->execute();
             $deleteStmt->close();
+            
+            // Step 3: Since sizes are deleted, photos are also deleted due to CASCADE
+            // So we need to recreate the sizes AND photos
             
             foreach ($_POST['edit_sizes'] as $i => $size) {
                 $size = trim($size);
@@ -269,12 +368,24 @@ if (isset($_POST['edit_product'])) {
                 $size_price = isset($_POST['edit_size_prices'][$i]) ? floatval($_POST['edit_size_prices'][$i]) : 0;
                 $discount = isset($_POST['edit_discounts'][$i]) ? floatval($_POST['edit_discounts'][$i]) : 0;
 
+                // Insert new size
                 $stmt2 = $conn->prepare("INSERT INTO product_sizes (product_id, size, quantity, price, discount) VALUES (?, ?, ?, ?, ?)");
                 $stmt2->bind_param("isidd", $id, $size, $quantity, $size_price, $discount);
                 $stmt2->execute();
-                $size_id = $stmt2->insert_id;
+                $new_size_id = $stmt2->insert_id;
                 $stmt2->close();
 
+                // Re-insert existing photos for this size (if any existed before)
+                if (isset($photosBySize[$size]) && count($photosBySize[$size]) > 0) {
+                    foreach ($photosBySize[$size] as $photoData) {
+                        $stmt3 = $conn->prepare("INSERT INTO photos (product_id, size_id, photo) VALUES (?, ?, ?)");
+                        $stmt3->bind_param("iis", $id, $new_size_id, $photoData['photo']);
+                        $stmt3->execute();
+                        $stmt3->close();
+                    }
+                }
+
+                // Handle NEW photo uploads for this size
                 if (isset($_FILES['edit_size_photos']['tmp_name'][$i]) && is_array($_FILES['edit_size_photos']['tmp_name'][$i])) {
                     foreach ($_FILES['edit_size_photos']['tmp_name'][$i] as $key => $tmp_name) {
                         if ($_FILES['edit_size_photos']['error'][$i][$key] === 0) {
@@ -305,7 +416,7 @@ if (isset($_POST['edit_product'])) {
                             }
 
                             $stmt3 = $conn->prepare("INSERT INTO photos (product_id, size_id, photo) VALUES (?, ?, ?)");
-                            $stmt3->bind_param("iis", $id, $size_id, $base64Image);
+                            $stmt3->bind_param("iis", $id, $new_size_id, $base64Image);
                             $stmt3->execute();
                             $stmt3->close();
                         }
@@ -1094,6 +1205,94 @@ $subcategories = $conn->query("SELECT id, subcategory_name FROM subcategories");
                 right: 15px;
             }
         }
+
+        .existing-photos-section {
+    margin: 10px 0;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+}
+
+.existing-photos-section h5 {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 10px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.existing-photos-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 8px;
+}
+
+.existing-photo-item {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 2px solid #e9ecef;
+    transition: all 0.3s ease;
+    background: white;
+}
+
+.existing-photo-item:hover {
+    border-color: #667eea;
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.existing-photo-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.delete-photo-btn {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    background: rgba(255, 71, 87, 0.9);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    opacity: 0;
+    z-index: 10;
+}
+
+.existing-photo-item:hover .delete-photo-btn {
+    opacity: 1;
+}
+
+.delete-photo-btn:hover {
+    background: rgba(255, 71, 87, 1);
+    transform: scale(1.2);
+}
+
+.delete-photo-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.no-photos-message {
+    font-size: 12px;
+    color: #999;
+    text-align: center;
+    padding: 10px;
+    font-style: italic;
+}
     </style>
 </head>
 <body>
@@ -1117,7 +1316,6 @@ $subcategories = $conn->query("SELECT id, subcategory_name FROM subcategories");
         <?php endif; ?>
 
         <div class="page-header">
-            <h2>Manage Products</h2>
             <div class="breadcrumb">
                 <a href="AdminDashboard.php">Dashboard</a> / Products
             </div>
@@ -1411,318 +1609,612 @@ $subcategories = $conn->query("SELECT id, subcategory_name FROM subcategories");
     </div>
 
     <script>
-        let sizeIndex = 1;
+let sizeIndex = 1;
+let editSizeIndex = 1;
 
-        function addSize() {
-            const container = document.getElementById('sizes-container');
-            const div = document.createElement('div');
-            div.classList.add('size-row');
-            div.innerHTML = `
-                <div class="size-input-group">
-                    <label>Size *</label>
-                    <input type="text" name="sizes[]" placeholder="e.g., S, M, L, XL" required>
-                </div>
-                <div class="size-input-group">
-                    <label>Quantity *</label>
-                    <input type="number" name="quantities[]" placeholder="0" min="0" required>
-                </div>
-                <div class="size-input-group">
-                    <label>Price ($) *</label>
-                    <input type="number" step="0.01" name="size_prices[]" placeholder="0.00" min="0" required>
-                </div>
-                <div class="size-input-group">
-                    <label>Discount (%)</label>
-                    <input type="number" step="0.01" name="discounts[]" placeholder="0" min="0" max="100" value="0">
-                </div>
-                <div class="size-input-group">
-                    <label>Photos for this size</label>
-                    <input type="file" name="size_photos[${sizeIndex}][]" multiple accept="image/*">
-                </div>
-                <button type="button" class="remove-size-btn" onclick="removeSize(this)">
-                    <i class="fas fa-times"></i> Remove Size
-                </button>
-            `;
-            container.appendChild(div);
-            sizeIndex++;
-            
-            setTimeout(() => {
-                div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }, 100);
-        }
+function addSize() {
+    const container = document.getElementById('sizes-container');
+    const div = document.createElement('div');
+    div.classList.add('size-row');
+    div.innerHTML = `
+        <div class="size-input-group">
+            <label>Size *</label>
+            <input type="text" name="sizes[]" placeholder="e.g., S, M, L, XL" required>
+        </div>
+        <div class="size-input-group">
+            <label>Quantity *</label>
+            <input type="number" name="quantities[]" placeholder="0" min="0" required>
+        </div>
+        <div class="size-input-group">
+            <label>Price ($) *</label>
+            <input type="number" step="0.01" name="size_prices[]" placeholder="0.00" min="0" required>
+        </div>
+        <div class="size-input-group">
+            <label>Discount (%)</label>
+            <input type="number" step="0.01" name="discounts[]" placeholder="0" min="0" max="100" value="0">
+        </div>
+        <div class="size-input-group">
+            <label>Photos for this size</label>
+            <input type="file" name="size_photos[${sizeIndex}][]" multiple accept="image/*">
+        </div>
+        <button type="button" class="remove-size-btn" onclick="removeSize(this)">
+            <i class="fas fa-times"></i> Remove Size
+        </button>
+    `;
+    container.appendChild(div);
+    sizeIndex++;
+    
+    setTimeout(() => {
+        div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 100);
+}
 
-        let editSizeIndex = 1;
+function addEditSize() {
+    const container = document.getElementById('edit-sizes-container');
+    const div = document.createElement('div');
+    div.classList.add('size-row');
+    div.innerHTML = `
+        <div class="size-input-group">
+            <label>Size *</label>
+            <input type="text" name="edit_sizes[]" placeholder="e.g., S, M, L, XL" required>
+        </div>
+        <div class="size-input-group">
+            <label>Quantity *</label>
+            <input type="number" name="edit_quantities[]" placeholder="0" min="0" required>
+        </div>
+        <div class="size-input-group">
+            <label>Price ($) *</label>
+            <input type="number" step="0.01" name="edit_size_prices[]" placeholder="0.00" min="0" required>
+        </div>
+        <div class="size-input-group">
+            <label>Discount (%)</label>
+            <input type="number" step="0.01" name="edit_discounts[]" placeholder="0" min="0" max="100" value="0">
+        </div>
+        <div class="existing-photos-section">
+            <p class="no-photos-message">No existing photos (new size)</p>
+        </div>
+        <div class="size-input-group">
+            <label><i class="fas fa-plus-circle"></i> Add Photos for this size</label>
+            <input type="file" name="edit_size_photos[${editSizeIndex}][]" multiple accept="image/*">
+        </div>
+        <button type="button" class="remove-size-btn" onclick="removeSize(this)">
+            <i class="fas fa-times"></i> Remove Size
+        </button>
+    `;
+    container.appendChild(div);
+    editSizeIndex++;
+    
+    setTimeout(() => {
+        div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 100);
+}
 
-        function addEditSize() {
+function removeSize(button) {
+    const row = button.closest('.size-row');
+    const container = row.parentElement;
+    
+    if (container.children.length <= 1) {
+        alert('You must have at least one size entry.');
+        return;
+    }
+    
+    row.style.transition = 'all 0.3s ease';
+    row.style.opacity = '0';
+    row.style.transform = 'translateX(-20px)';
+    
+    setTimeout(() => {
+        row.remove();
+    }, 300);
+}
+
+function openAddModal() {
+    document.getElementById('addModal').classList.add('active');
+    sizeIndex = 1;
+}
+
+function closeAddModal() {
+    document.getElementById('addModal').classList.remove('active');
+    document.querySelector('#addModal form').reset();
+    const container = document.getElementById('sizes-container');
+    container.innerHTML = `
+        <div class="size-row">
+            <div class="size-input-group">
+                <label>Size *</label>
+                <input type="text" name="sizes[]" placeholder="e.g., S, M, L, XL" required>
+            </div>
+            <div class="size-input-group">
+                <label>Quantity *</label>
+                <input type="number" name="quantities[]" placeholder="0" min="0" required>
+            </div>
+            <div class="size-input-group">
+                <label>Price ($) *</label>
+                <input type="number" step="0.01" name="size_prices[]" placeholder="0.00" min="0" required>
+            </div>
+            <div class="size-input-group">
+                <label>Discount (%)</label>
+                <input type="number" step="0.01" name="discounts[]" placeholder="0" min="0" max="100" value="0">
+            </div>
+            <div class="size-input-group">
+                <label>Photos for this size</label>
+                <input type="file" name="size_photos[0][]" multiple accept="image/*">
+            </div>
+            <button type="button" class="remove-size-btn" onclick="removeSize(this)">
+                <i class="fas fa-times"></i> Remove Size
+            </button>
+        </div>
+    `;
+    sizeIndex = 1;
+}
+
+function openEditModal(data) {
+    document.getElementById('editModal').classList.add('active');
+    document.getElementById('edit_product_id').value = data.id;
+    document.getElementById('edit_category_id').value = data.category_id;
+    document.getElementById('edit_subcategory_id').value = data.subcategory_id || '';
+    document.getElementById('edit_product_name').value = data.product_name;
+    document.getElementById('edit_description').value = data.description || '';
+    document.getElementById('edit_price').value = data.price;
+    document.getElementById('edit_gender').value = data.gender;
+    editSizeIndex = 0;
+
+    fetch(`ManageProducts.php?ajax=get_details&id=${data.id}`)
+        .then(response => response.json())
+        .then(productData => {
             const container = document.getElementById('edit-sizes-container');
-            const div = document.createElement('div');
-            div.classList.add('size-row');
-            div.innerHTML = `
-                <div class="size-input-group">
-                    <label>Size *</label>
-                    <input type="text" name="edit_sizes[]" placeholder="e.g., S, M, L, XL" required>
-                </div>
-                <div class="size-input-group">
-                    <label>Quantity *</label>
-                    <input type="number" name="edit_quantities[]" placeholder="0" min="0" required>
-                </div>
-                <div class="size-input-group">
-                    <label>Price ($) *</label>
-                    <input type="number" step="0.01" name="edit_size_prices[]" placeholder="0.00" min="0" required>
-                </div>
-                <div class="size-input-group">
-                    <label>Discount (%)</label>
-                    <input type="number" step="0.01" name="edit_discounts[]" placeholder="0" min="0" max="100" value="0">
-                </div>
-                <div class="size-input-group">
-                    <label>Photos for this size</label>
-                    <input type="file" name="edit_size_photos[${editSizeIndex}][]" multiple accept="image/*">
-                </div>
-                <button type="button" class="remove-size-btn" onclick="removeSize(this)">
-                    <i class="fas fa-times"></i> Remove Size
-                </button>
-            `;
-            container.appendChild(div);
-            editSizeIndex++;
+            container.innerHTML = '';
             
-            setTimeout(() => {
-                div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }, 100);
-        }
+            if (productData.sizes && productData.sizes.length > 0) {
+                productData.sizes.forEach((size, index) => {
+                    const div = document.createElement('div');
+                    div.classList.add('size-row');
+                    
+                    let existingPhotosHtml = '';
+                    if (size.photos && size.photos.length > 0) {
+                        existingPhotosHtml = `
+                            <div class="existing-photos-section">
+                                <h5><i class="fas fa-images"></i> Existing Photos (${size.photos.length})</h5>
+                                <div class="existing-photos-grid">
+                                    ${size.photos.map(photo => `
+                                        <div class="existing-photo-item" data-photo-id="${photo.id}">
+                                            <img src="data:image/jpeg;base64,${photo.photo}" alt="Photo">
+                                            <button type="button" class="delete-photo-btn" 
+                                                    onclick="deletePhoto(${photo.id}, this)" 
+                                                    title="Delete this photo">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        existingPhotosHtml = `
+                            <div class="existing-photos-section">
+                                <p class="no-photos-message">No existing photos for this size</p>
+                            </div>
+                        `;
+                    }
+                    
+                    div.innerHTML = `
+                        <div class="size-input-group">
+                            <label>Size *</label>
+                            <input type="text" name="edit_sizes[]" value="${size.size}" required>
+                        </div>
+                        <div class="size-input-group">
+                            <label>Quantity *</label>
+                            <input type="number" name="edit_quantities[]" value="${size.quantity}" min="0" required>
+                        </div>
+                        <div class="size-input-group">
+                            <label>Price ($) *</label>
+                            <input type="number" step="0.01" name="edit_size_prices[]" value="${size.price}" min="0" required>
+                        </div>
+                        <div class="size-input-group">
+                            <label>Discount (%)</label>
+                            <input type="number" step="0.01" name="edit_discounts[]" value="${size.discount}" min="0" max="100">
+                        </div>
+                        ${existingPhotosHtml}
+                        <div class="size-input-group">
+                            <label><i class="fas fa-plus-circle"></i> Add New Photos for this size</label>
+                            <input type="file" name="edit_size_photos[${index}][]" multiple accept="image/*">
+                        </div>
+                        <button type="button" class="remove-size-btn" onclick="removeSize(this)">
+                            <i class="fas fa-times"></i> Remove Size
+                        </button>
+                    `;
+                    container.appendChild(div);
+                    editSizeIndex = index + 1;
+                });
+            } else {
+                addEditSize();
+            }
+        })
+        .catch(error => {
+            console.error('Error loading product details:', error);
+            alert('Error loading product details. Please try again.');
+            addEditSize();
+        });
+}
 
-        function removeSize(button) {
-            const row = button.closest('.size-row');
-            const container = row.parentElement;
-            
-            if (container.children.length <= 1) {
-                alert('You must have at least one size entry.');
+function closeEditModal() {
+    document.getElementById('editModal').classList.remove('active');
+    document.querySelector('#editModal form').reset();
+    document.getElementById('edit-sizes-container').innerHTML = '';
+    editSizeIndex = 1;
+}
+
+function viewProduct(id) {
+    document.getElementById('viewModal').classList.add('active');
+    
+    fetch(`ManageProducts.php?ajax=get_details&id=${id}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error loading product details');
+                closeViewModal();
                 return;
             }
             
-            row.style.transition = 'all 0.3s ease';
-            row.style.opacity = '0';
-            row.style.transform = 'translateX(-20px)';
+            document.getElementById('view_product_name').textContent = data.product_name;
             
-            setTimeout(() => {
-                row.remove();
-            }, 300);
-        }
-
-        function openAddModal() {
-            document.getElementById('addModal').classList.add('active');
-            sizeIndex = 1;
-        }
-
-        function closeAddModal() {
-            document.getElementById('addModal').classList.remove('active');
-            document.querySelector('#addModal form').reset();
-            const container = document.getElementById('sizes-container');
-            container.innerHTML = `
-                <div class="size-row">
-                    <div class="size-input-group">
-                        <label>Size *</label>
-                        <input type="text" name="sizes[]" placeholder="e.g., S, M, L, XL" required>
+            const genderLabels = ['Unisex', 'Male', 'Female'];
+            const genderLabel = genderLabels[data.gender] || 'Unisex';
+            
+            let photosHtml = '';
+            if (data.photos && data.photos.length > 0) {
+                photosHtml = `
+                    <div class="product-gallery-view">
+                        ${data.photos.map(photo => `
+                            <img src="data:image/jpeg;base64,${photo.photo}" alt="Product photo">
+                        `).join('')}
                     </div>
-                    <div class="size-input-group">
-                        <label>Quantity *</label>
-                        <input type="number" name="quantities[]" placeholder="0" min="0" required>
-                    </div>
-                    <div class="size-input-group">
-                        <label>Price ($) *</label>
-                        <input type="number" step="0.01" name="size_prices[]" placeholder="0.00" min="0" required>
-                    </div>
-                    <div class="size-input-group">
-                        <label>Discount (%)</label>
-                        <input type="number" step="0.01" name="discounts[]" placeholder="0" min="0" max="100" value="0">
-                    </div>
-                    <div class="size-input-group">
-                        <label>Photos for this size</label>
-                        <input type="file" name="size_photos[0][]" multiple accept="image/*">
-                    </div>
-                    <button type="button" class="remove-size-btn" onclick="removeSize(this)">
-                        <i class="fas fa-times"></i> Remove Size
-                    </button>
+                `;
+            }
+            
+            let sizesHtml = '';
+            if (data.sizes && data.sizes.length > 0) {
+                sizesHtml = `
+                    <table class="sizes-table">
+                        <thead>
+                            <tr>
+                                <th>Size</th>
+                                <th>Quantity</th>
+                                <th>Price</th>
+                                <th>Discount</th>
+                                <th>Final Price</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.sizes.map(size => {
+                                const finalPrice = size.price - (size.price * size.discount / 100);
+                                return `
+                                    <tr>
+                                        <td>${size.size}</td>
+                                        <td>${size.quantity}</td>
+                                        <td>$${parseFloat(size.price).toFixed(2)}</td>
+                                        <td>${parseFloat(size.discount).toFixed(0)}%</td>
+                                        <td>$${finalPrice.toFixed(2)}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                `;
+            }
+            
+            document.getElementById('view_content').innerHTML = `
+                ${photosHtml}
+                <div class="info-row">
+                    <div class="info-label">Category:</div>
+                    <div class="info-value">${data.category_name || 'N/A'}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Subcategory:</div>
+                    <div class="info-value">${data.subcategory_name || 'N/A'}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Description:</div>
+                    <div class="info-value">${data.description || 'No description available'}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Base Price:</div>
+                    <div class="info-value">$${parseFloat(data.price).toFixed(2)}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Gender:</div>
+                    <div class="info-value">${genderLabel}</div>
+                </div>
+                <div style="margin-top: 20px;">
+                    <h4 style="margin-bottom: 10px;">Available Sizes:</h4>
+                    ${sizesHtml}
                 </div>
             `;
-            sizeIndex = 1;
-        }
-
-        function openEditModal(data) {
-            document.getElementById('editModal').classList.add('active');
-            document.getElementById('edit_product_id').value = data.id;
-            document.getElementById('edit_category_id').value = data.category_id;
-            document.getElementById('edit_subcategory_id').value = data.subcategory_id || '';
-            document.getElementById('edit_product_name').value = data.product_name;
-            document.getElementById('edit_description').value = data.description || '';
-            document.getElementById('edit_price').value = data.price;
-            document.getElementById('edit_gender').value = data.gender;
-            editSizeIndex = 0;
-
-            fetch(`ManageProducts.php?ajax=get_sizes&id=${data.id}`)
-                .then(response => response.json())
-                .then(sizes => {
-                    const container = document.getElementById('edit-sizes-container');
-                    container.innerHTML = '';
-                    if (sizes.length > 0) {
-                        sizes.forEach((size, index) => {
-                            const div = document.createElement('div');
-                            div.classList.add('size-row');
-                            div.innerHTML = `
-                                <div class="size-input-group">
-                                    <label>Size *</label>
-                                    <input type="text" name="edit_sizes[]" value="${size.size}" required>
-                                </div>
-                                <div class="size-input-group">
-                                    <label>Quantity *</label>
-                                    <input type="number" name="edit_quantities[]" value="${size.quantity}" min="0" required>
-                                </div>
-                                <div class="size-input-group">
-                                    <label>Price ($) *</label>
-                                    <input type="number" step="0.01" name="edit_size_prices[]" value="${size.price}" min="0" required>
-                                </div>
-                                <div class="size-input-group">
-                                    <label>Discount (%)</label>
-                                    <input type="number" step="0.01" name="edit_discounts[]" value="${size.discount}" min="0" max="100">
-                                </div>
-                                <div class="size-input-group">
-                                    <label>Photos for this size</label>
-                                    <input type="file" name="edit_size_photos[${index}][]" multiple accept="image/*">
-                                </div>
-                                <button type="button" class="remove-size-btn" onclick="removeSize(this)">
-                                    <i class="fas fa-times"></i> Remove Size
-                                </button>
-                            `;
-                            container.appendChild(div);
-                            editSizeIndex = index + 1;
-                        });
-                    } else {
-                        addEditSize();
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading sizes:', error);
-                    addEditSize();
-                });
-        }
-
-        function closeEditModal() {
-            document.getElementById('editModal').classList.remove('active');
-        }
-
-        function viewProduct(id) {
-            document.getElementById('viewModal').classList.add('active');
-            
-            fetch(`ManageProducts.php?ajax=get_details&id=${id}`)
-                .then(response => response.json())
-                .then(data => {
-                    const genderLabels = ['Unisex', 'Male', 'Female'];
-                    let photosHtml = '';
-                    if (data.photos && data.photos.length > 0) {
-                        photosHtml = '<div class="product-gallery-view">';
-                        data.photos.forEach(photo => {
-                            photosHtml += `<img src="data:image/jpeg;base64,${photo.photo}" alt="Product Photo">`;
-                        });
-                        photosHtml += '</div>';
-                    }
-
-                    let sizesHtml = '';
-                    if (data.sizes && data.sizes.length > 0) {
-                        sizesHtml = `
-                            <h4 style="margin-top: 20px; margin-bottom: 10px;">Available Sizes</h4>
-                            <table class="sizes-table">
-                                <thead>
-                                    <tr>
-                                        <th>Size</th>
-                                        <th>Quantity</th>
-                                        <th>Price</th>
-                                        <th>Discount</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                        `;
-                        data.sizes.forEach(size => {
-                            sizesHtml += `
-                                <tr>
-                                    <td>${size.size}</td>
-                                    <td>${size.quantity}</td>
-                                    <td>${parseFloat(size.price).toFixed(2)}</td>
-                                    <td>${size.discount}%</td>
-                                </tr>
-                            `;
-                        });
-                        sizesHtml += '</tbody></table>';
-                    }
-
-                    document.getElementById('view_product_name').textContent = data.product_name;
-                    document.getElementById('view_content').innerHTML = `
-                        ${photosHtml}
-                        <div class="info-row">
-                            <div class="info-label">Category:</div>
-                            <div class="info-value">${data.category_name}</div>
-                        </div>
-                        <div class="info-row">
-                            <div class="info-label">Subcategory:</div>
-                            <div class="info-value">${data.subcategory_name || 'N/A'}</div>
-                        </div>
-                        <div class="info-row">
-                            <div class="info-label">Base Price:</div>
-                            <div class="info-value">${parseFloat(data.price).toFixed(2)}</div>
-                        </div>
-                        <div class="info-row">
-                            <div class="info-label">Gender:</div>
-                            <div class="info-value">${genderLabels[data.gender]}</div>
-                        </div>
-                        <div class="info-row">
-                            <div class="info-label">Description:</div>
-                            <div class="info-value">${data.description || 'No description'}</div>
-                        </div>
-                        ${sizesHtml}
-                    `;
-                })
-                .catch(error => {
-                    console.error('Error loading product details:', error);
-                    document.getElementById('view_content').innerHTML = '<p style="color: red;">Error loading product details.</p>';
-                });
-        }
-
-        function closeViewModal() {
-            document.getElementById('viewModal').classList.remove('active');
-        }
-
-        function deleteProduct(id) {
-            if (confirm('Are you sure you want to delete this product? This will also delete all associated photos and sizes.')) {
-                window.location.href = 'ManageProducts.php?delete=' + id;
-            }
-        }
-
-        window.onclick = function(event) {
-            const addModal = document.getElementById('addModal');
-            const editModal = document.getElementById('editModal');
-            const viewModal = document.getElementById('viewModal');
-            if (event.target == addModal) {
-                closeAddModal();
-            }
-            if (event.target == editModal) {
-                closeEditModal();
-            }
-            if (event.target == viewModal) {
-                closeViewModal();
-            }
-        }
-
-        setTimeout(() => {
-            document.querySelectorAll('.alert').forEach(alert => {
-                alert.style.animation = 'slideOut 0.3s ease forwards';
-                setTimeout(() => alert.remove(), 300);
-            });
-        }, 5000);
-
-        document.querySelectorAll('.alert-close').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const alert = this.parentElement;
-                alert.style.animation = 'slideOut 0.3s ease forwards';
-                setTimeout(() => alert.remove(), 300);
-            });
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error loading product details');
+            closeViewModal();
         });
+}
+
+function closeViewModal() {
+    document.getElementById('viewModal').classList.remove('active');
+    document.getElementById('view_content').innerHTML = '';
+}
+
+function deleteProduct(id) {
+    if (confirm('Are you sure you want to delete this product? This will also delete all associated photos and sizes.')) {
+        window.location.href = 'ManageProducts.php?delete=' + id;
+    }
+}
+
+function deletePhoto(photoId, buttonElement) {
+    if (!confirm('Are you sure you want to delete this photo?')) {
+        return;
+    }
+    
+    buttonElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    buttonElement.disabled = true;
+    
+    fetch(`ManageProducts.php?ajax=delete_photo&photo_id=${photoId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const photoItem = buttonElement.closest('.existing-photo-item');
+                photoItem.style.transition = 'all 0.3s ease';
+                photoItem.style.opacity = '0';
+                photoItem.style.transform = 'scale(0.8)';
+                
+                setTimeout(() => {
+                    photoItem.remove();
+                    
+                    const photosSection = buttonElement.closest('.existing-photos-section');
+                    const remainingPhotos = photosSection.querySelectorAll('.existing-photo-item');
+                    
+                    if (remainingPhotos.length === 0) {
+                        const photosGrid = photosSection.querySelector('.existing-photos-grid');
+                        if (photosGrid) photosGrid.remove();
+                        const heading = photosSection.querySelector('h5');
+                        if (heading) heading.remove();
+                        photosSection.innerHTML = '<p class="no-photos-message">No existing photos for this size</p>';
+                    } else {
+                        const heading = photosSection.querySelector('h5');
+                        if (heading) {
+                            heading.innerHTML = `<i class="fas fa-images"></i> Existing Photos (${remainingPhotos.length})`;
+                        }
+                    }
+                }, 300);
+                
+                showTempMessage('Photo deleted successfully', 'success');
+            } else {
+                alert('Failed to delete photo: ' + (data.error || 'Unknown error'));
+                buttonElement.innerHTML = '<i class="fas fa-times"></i>';
+                buttonElement.disabled = false;
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting photo:', error);
+            alert('Error deleting photo. Please try again.');
+            buttonElement.innerHTML = '<i class="fas fa-times"></i>';
+            buttonElement.disabled = false;
+        });
+}
+
+function showTempMessage(message, type = 'success') {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type}`;
+    alertDiv.innerHTML = `
+        <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+        <span>${message}</span>
+        <button class="alert-close" onclick="this.parentElement.remove()">×</button>
+    `;
+    document.body.appendChild(alertDiv);
+    
+    setTimeout(() => {
+        alertDiv.style.animation = 'slideOut 0.3s ease forwards';
+        setTimeout(() => alertDiv.remove(), 300);
+    }, 3000);
+}
+
+// Click outside modal to close
+window.onclick = function(event) {
+    const addModal = document.getElementById('addModal');
+    const editModal = document.getElementById('editModal');
+    const viewModal = document.getElementById('viewModal');
+    
+    if (event.target == addModal) {
+        closeAddModal();
+    }
+    if (event.target == editModal) {
+        closeEditModal();
+    }
+    if (event.target == viewModal) {
+        closeViewModal();
+    }
+}
+
+// Auto-dismiss alerts after 5 seconds
+setTimeout(() => {
+    document.querySelectorAll('.alert').forEach(alert => {
+        alert.style.animation = 'slideOut 0.3s ease forwards';
+        setTimeout(() => alert.remove(), 300);
+    });
+}, 5000);
+
+// Alert close button functionality
+document.querySelectorAll('.alert-close').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const alert = this.parentElement;
+        alert.style.animation = 'slideOut 0.3s ease forwards';
+        setTimeout(() => alert.remove(), 300);
+    });
+});
+
+        function deletePhoto(photoId, buttonElement) {
+    if (!confirm('Are you sure you want to delete this photo?')) {
+        return;
+    }
+    
+    buttonElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    buttonElement.disabled = true;
+    
+    fetch(`ManageProducts.php?ajax=delete_photo&photo_id=${photoId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const photoItem = buttonElement.closest('.existing-photo-item');
+                photoItem.style.transition = 'all 0.3s ease';
+                photoItem.style.opacity = '0';
+                photoItem.style.transform = 'scale(0.8)';
+                
+                setTimeout(() => {
+                    photoItem.remove();
+                    
+                    const photosSection = buttonElement.closest('.existing-photos-section');
+                    const remainingPhotos = photosSection.querySelectorAll('.existing-photo-item');
+                    
+                    if (remainingPhotos.length === 0) {
+                        const photosGrid = photosSection.querySelector('.existing-photos-grid');
+                        if (photosGrid) photosGrid.remove();
+                        const heading = photosSection.querySelector('h5');
+                        if (heading) heading.remove();
+                        photosSection.innerHTML = '<p class="no-photos-message">No existing photos for this size</p>';
+                    } else {
+                        const heading = photosSection.querySelector('h5');
+                        if (heading) {
+                            heading.innerHTML = `<i class="fas fa-images"></i> Existing Photos (${remainingPhotos.length})`;
+                        }
+                    }
+                }, 300);
+                
+                showTempMessage('Photo deleted successfully', 'success');
+            } else {
+                alert('Failed to delete photo: ' + (data.error || 'Unknown error'));
+                buttonElement.innerHTML = '<i class="fas fa-times"></i>';
+                buttonElement.disabled = false;
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting photo:', error);
+            alert('Error deleting photo. Please try again.');
+            buttonElement.innerHTML = '<i class="fas fa-times"></i>';
+            buttonElement.disabled = false;
+        });
+}
+
+function showTempMessage(message, type = 'success') {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type}`;
+    alertDiv.innerHTML = `
+        <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+        <span>${message}</span>
+        <button class="alert-close" onclick="this.parentElement.remove()">×</button>
+    `;
+    document.body.appendChild(alertDiv);
+    
+    setTimeout(() => {
+        alertDiv.style.animation = 'slideOut 0.3s ease forwards';
+        setTimeout(() => alertDiv.remove(), 300);
+    }, 3000);
+}
+
+function viewProduct(id) {
+    document.getElementById('viewModal').classList.add('active');
+    
+    fetch(`ManageProducts.php?ajax=get_details&id=${id}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error loading product details');
+                closeViewModal();
+                return;
+            }
+            
+            document.getElementById('view_product_name').textContent = data.product_name;
+            
+            const genderLabels = ['Unisex', 'Male', 'Female'];
+            const genderLabel = genderLabels[data.gender] || 'Unisex';
+            
+            let photosHtml = '';
+            if (data.photos && data.photos.length > 0) {
+                photosHtml = `
+                    <div class="product-gallery-view">
+                        ${data.photos.map(photo => `
+                            <img src="data:image/jpeg;base64,${photo.photo}" alt="Product photo">
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            let sizesHtml = '';
+            if (data.sizes && data.sizes.length > 0) {
+                sizesHtml = `
+                    <table class="sizes-table">
+                        <thead>
+                            <tr>
+                                <th>Size</th>
+                                <th>Quantity</th>
+                                <th>Price</th>
+                                <th>Discount</th>
+                                <th>Final Price</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.sizes.map(size => {
+                                const finalPrice = size.price - (size.price * size.discount / 100);
+                                return `
+                                    <tr>
+                                        <td>${size.size}</td>
+                                        <td>${size.quantity}</td>
+                                        <td>$${parseFloat(size.price).toFixed(2)}</td>
+                                        <td>${parseFloat(size.discount).toFixed(0)}%</td>
+                                        <td>$${finalPrice.toFixed(2)}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                `;
+            }
+            
+            document.getElementById('view_content').innerHTML = `
+                ${photosHtml}
+                <div class="info-row">
+                    <div class="info-label">Category:</div>
+                    <div class="info-value">${data.category_name || 'N/A'}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Subcategory:</div>
+                    <div class="info-value">${data.subcategory_name || 'N/A'}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Description:</div>
+                    <div class="info-value">${data.description || 'No description available'}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Base Price:</div>
+                    <div class="info-value">$${parseFloat(data.price).toFixed(2)}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Gender:</div>
+                    <div class="info-value">${genderLabel}</div>
+                </div>
+                <div style="margin-top: 20px;">
+                    <h4 style="margin-bottom: 10px;">Available Sizes:</h4>
+                    ${sizesHtml}
+                </div>
+            `;
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error loading product details');
+            closeViewModal();
+        });
+}
+
+function closeViewModal() {
+    document.getElementById('viewModal').classList.remove('active');
+    document.getElementById('view_content').innerHTML = '';
+}
     </script>
 </body>
 </html>
