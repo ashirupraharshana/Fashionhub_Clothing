@@ -5,14 +5,14 @@ include 'Components/CustomerNavBar.php';
 // Get filter parameters
 $category_filter = isset($_GET['category']) ? intval($_GET['category']) : 0;
 $gender_filter = isset($_GET['gender']) ? intval($_GET['gender']) : -1;
-$size_filter = isset($_GET['size']) ? $_GET['size'] : '';
 $sort_by = isset($_GET['sort']) ? $_GET['sort'] : 'newest';
 $search = isset($_GET['search']) ? $conn->real_escape_string($_GET['search']) : '';
-$min_price = isset($_GET['min_price']) ? floatval($_GET['min_price']) : 0;
-$max_price = isset($_GET['max_price']) ? floatval($_GET['max_price']) : 999999;
 
-// Build WHERE clause
-$where_conditions = ["p.stock_quantity > 0"];
+$min_price = isset($_GET['min_price']) && $_GET['min_price'] !== '' ? floatval($_GET['min_price']) : 0;
+$max_price = isset($_GET['max_price']) && $_GET['max_price'] !== '' ? floatval($_GET['max_price']) : 999999;
+
+// Build WHERE clause for products table
+$where_conditions = [];
 
 if ($category_filter > 0) {
     $where_conditions[] = "p.category_id = $category_filter";
@@ -22,43 +22,56 @@ if ($gender_filter >= 0) {
     $where_conditions[] = "p.gender = $gender_filter";
 }
 
-if (!empty($size_filter)) {
-    $size_filter_escaped = $conn->real_escape_string($size_filter);
-    $where_conditions[] = "p.size = '$size_filter_escaped'";
-}
-
 if (!empty($search)) {
     $where_conditions[] = "(p.product_name LIKE '%$search%' OR p.description LIKE '%$search%')";
 }
 
-if ($min_price > 0 || $max_price < 999999) {
-    $where_conditions[] = "p.price >= $min_price AND p.price <= $max_price";
+// Build HAVING clause - only filter by stock
+$having_conditions = ["total_stock > 0"];
+
+// Only apply price filters if user explicitly set them
+if (isset($_GET['min_price']) && $_GET['min_price'] !== '' && $min_price > 0) {
+    $having_conditions[] = "min_price >= $min_price";
 }
 
-$where_clause = implode(" AND ", $where_conditions);
+if (isset($_GET['max_price']) && $_GET['max_price'] !== '' && $max_price < 999999) {
+    $having_conditions[] = "min_price <= $max_price";
+}
 
-// Determine ORDER BY
+$where_clause = !empty($where_conditions) ? implode(" AND ", $where_conditions) : "1=1";
+$having_clause = implode(" AND ", $having_conditions);
+
+// Determine ORDER BY - now using aggregated price and stock from product_sizes
 $order_by = "p.id DESC";
 switch ($sort_by) {
     case 'price_low':
-        $order_by = "p.price ASC";
+        $order_by = "min_price ASC";
         break;
     case 'price_high':
-        $order_by = "p.price DESC";
+        $order_by = "max_price DESC";
         break;
     case 'name':
         $order_by = "p.product_name ASC";
         break;
     case 'popular':
-        $order_by = "p.stock_quantity ASC";
+        $order_by = "total_stock ASC";
         break;
 }
 
-// Get products
-$products_query = "SELECT p.*, c.category_name 
+// Get products with aggregated size and price information
+$products_query = "SELECT p.id, p.product_name, p.description, p.category_id, p.gender, 
+                   c.category_name,
+                   MIN(ps.price) as min_price,
+                   MAX(ps.price) as max_price,
+                   MAX(ps.discount) as max_discount,
+                   SUM(ps.quantity) as total_stock,
+                   GROUP_CONCAT(DISTINCT ps.size ORDER BY ps.size SEPARATOR ', ') as available_sizes
                    FROM products p 
                    LEFT JOIN categories c ON p.category_id = c.id 
+                   INNER JOIN product_sizes ps ON p.id = ps.product_id
                    WHERE $where_clause
+                   GROUP BY p.id, p.product_name, p.description, p.category_id, p.gender, c.category_name
+                   HAVING $having_clause
                    ORDER BY $order_by";
 $products_result = $conn->query($products_query);
 
@@ -66,8 +79,10 @@ $products_result = $conn->query($products_query);
 $categories_query = "SELECT id, category_name FROM categories ORDER BY category_name ASC";
 $categories_result = $conn->query($categories_query);
 
-// Get price range
-$price_range_query = "SELECT MIN(price) as min_price, MAX(price) as max_price FROM products WHERE stock_quantity > 0";
+// Get price range from product_sizes
+$price_range_query = "SELECT MIN(ps.price) as min_price, MAX(ps.price) as max_price 
+                      FROM product_sizes ps 
+                      WHERE ps.quantity > 0";
 $price_range_result = $conn->query($price_range_query);
 $price_range = $price_range_result->fetch_assoc();
 ?>
@@ -297,36 +312,6 @@ $price_range = $price_range_result->fetch_assoc();
             font-size: 12px;
             color: var(--text-light);
             font-weight: 600;
-        }
-
-        .size-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-        }
-
-        .size-option {
-            padding: 12px;
-            border: 2px solid rgba(0, 0, 0, 0.1);
-            border-radius: 10px;
-            text-align: center;
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text);
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .size-option:hover {
-            border-color: var(--accent);
-            color: var(--accent);
-            background: rgba(231, 76, 60, 0.05);
-        }
-
-        .size-option.active {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
         }
 
         .price-slider {
@@ -636,22 +621,60 @@ $price_range = $price_range_result->fetch_assoc();
             line-height: 1.4;
         }
 
-        .product-attributes {
+        .product-sizes {
             display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
         }
 
-        .attribute-tag {
-            padding: 5px 12px;
-            background: rgba(231, 76, 60, 0.08);
-            border-radius: 50px;
-            font-size: 11px;
+        .size-tag {
+            padding: 6px 12px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
+            border-radius: 8px;
+            font-size: 12px;
+            color: #2c3e50;
+            font-weight: 700;
+            border: 2px solid #e8e8e8;
+            transition: all 0.3s ease;
+        }
+
+        .product-card:hover .size-tag {
+            border-color: #e74c3c;
+            background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
+            color: #e74c3c;
+        }
+
+        .size-tag.out-of-stock {
+            text-decoration: line-through;
+            background: linear-gradient(135deg, #ecf0f1 0%, #bdc3c7 100%);
+            color: #7f8c8d;
+            cursor: not-allowed;
+            position: relative;
+        }
+
+        .size-tag.out-of-stock::after {
+            content: 'Out of Stock';
+            position: absolute;
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 9px;
+            white-space: nowrap;
+            color: #e74c3c;
             font-weight: 600;
-            color: var(--accent);
-            display: flex;
-            align-items: center;
-            gap: 5px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .product-card:hover .size-tag.out-of-stock::after {
+            opacity: 1;
+        }
+
+        .product-card:hover .size-tag.out-of-stock {
+            border-color: #bdc3c7;
+            background: linear-gradient(135deg, #ecf0f1 0%, #bdc3c7 100%);
+            color: #95a5a6;
         }
 
         .product-footer {
@@ -1108,6 +1131,30 @@ $price_range = $price_range_result->fetch_assoc();
                 font-size: 32px;
             }
         }
+
+        .photo-indicators {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 6px;
+            z-index: 10;
+        }
+
+        .photo-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .photo-indicator.active {
+            background: white;
+            width: 24px;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -1172,40 +1219,24 @@ $price_range = $price_range_result->fetch_assoc();
                             <label for="gender_all">All</label>
                         </div>
                         <div class="filter-option">
-                            <input type="radio" name="gender" value="0" id="gender_men" 
-                                   <?php echo $gender_filter === 0 ? 'checked' : ''; ?> 
+                            <input type="radio" name="gender" value="0" id="gender_unisex" 
+                                   <?php echo $gender_filter == 0 ? 'checked' : ''; ?> 
                                    onchange="this.form.submit()">
-                            <label for="gender_men">Men</label>
+                            <label for="gender_unisex">Unisex</label>
                         </div>
                         <div class="filter-option">
-                            <input type="radio" name="gender" value="1" id="gender_women" 
-                                   <?php echo $gender_filter === 1 ? 'checked' : ''; ?> 
+                            <input type="radio" name="gender" value="1" id="gender_male" 
+                                   <?php echo $gender_filter == 1 ? 'checked' : ''; ?> 
                                    onchange="this.form.submit()">
-                            <label for="gender_women">Women</label>
+                            <label for="gender_male">Male</label>
+                        </div>
+                        <div class="filter-option">
+                            <input type="radio" name="gender" value="2" id="gender_female" 
+                                   <?php echo $gender_filter == 2 ? 'checked' : ''; ?> 
+                                   onchange="this.form.submit()">
+                            <label for="gender_female">Female</label>
                         </div>
                     </div>
-                </div>
-
-                <!-- Size Filter -->
-                <div class="filter-section">
-                    <div class="filter-header">
-                        <h3>Size</h3>
-                        <?php if (!empty($size_filter)): ?>
-                        <button type="button" class="clear-filter" onclick="clearSize()">Clear</button>
-                        <?php endif; ?>
-                    </div>
-                    <div class="size-grid">
-                        <?php 
-                        $sizes = ['S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
-                        foreach ($sizes as $size): 
-                        ?>
-                        <div class="size-option <?php echo $size_filter == $size ? 'active' : ''; ?>" 
-                             onclick="selectSize('<?php echo $size; ?>')">
-                            <?php echo $size; ?>
-                        </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <input type="hidden" name="size" id="sizeInput" value="<?php echo htmlspecialchars($size_filter); ?>">
                 </div>
 
                 <!-- Price Range Filter -->
@@ -1280,27 +1311,89 @@ $price_range = $price_range_result->fetch_assoc();
                 <?php if ($products_result->num_rows > 0): ?>
                     <?php while ($product = $products_result->fetch_assoc()): ?>
                         <?php 
-                        $final_price = $product['price'] - ($product['price'] * $product['discount'] / 100);
+                            // Get the first photo for this product
+                            $photoStmt = $conn->prepare("SELECT photo FROM photos WHERE product_id = ? LIMIT 1");
+                            $photoStmt->bind_param("i", $product['id']);
+                            $photoStmt->execute();
+                            $photoResult = $photoStmt->get_result();
+                            $productPhoto = $photoResult->fetch_assoc();
+                            $photoStmt->close();
+                            
+                            // Get sizes with quantity for this product
+                            $sizesStmt = $conn->prepare("SELECT size, quantity FROM product_sizes WHERE product_id = ? ORDER BY 
+                                CASE 
+                                    WHEN size = 'S' THEN 1
+                                    WHEN size = 'M' THEN 2
+                                    WHEN size = 'L' THEN 3
+                                    WHEN size = 'XL' THEN 4
+                                    WHEN size = 'XXL' THEN 5
+                                    WHEN size = 'XXXL' THEN 6
+                                    ELSE 7
+                                END");
+                            $sizesStmt->bind_param("i", $product['id']);
+                            $sizesStmt->execute();
+                            $sizesResult = $sizesStmt->get_result();
+                            $sizes = [];
+                            while ($sizeRow = $sizesResult->fetch_assoc()) {
+                                $sizes[] = [
+                                    'size' => $sizeRow['size'],
+                                    'quantity' => $sizeRow['quantity']
+                                ];
+                            }
+                            $sizesStmt->close();
+                            
+                            // Use the minimum price from product_sizes
+                            $display_price = $product['min_price'];
+                            $discount = $product['max_discount'] ?? 0;
+                            $final_price = $display_price - ($display_price * $discount / 100);
+                            $total_stock = $product['total_stock'] ?? 0;
                         ?>
                         <div class="product-card" onclick="window.location.href='/fashionhub/ProductDetails.php?id=<?php echo $product['id']; ?>'">
                             <div class="product-image-wrapper">
                                 <div class="product-image">
-                                    <?php if (!empty($product['product_photo'])): ?>
-                                        <img src="data:image/jpeg;base64,<?php echo $product['product_photo']; ?>" 
-                                             alt="<?php echo htmlspecialchars($product['product_name']); ?>"
-                                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                                        <i class="fas fa-tshirt" style="display: none;"></i>
+                                    <?php 
+                                    // Get ALL photos for this product (not just first one)
+                                    $allPhotosStmt = $conn->prepare("SELECT photo FROM photos WHERE product_id = ? ORDER BY id");
+                                    $allPhotosStmt->bind_param("i", $product['id']);
+                                    $allPhotosStmt->execute();
+                                    $allPhotosResult = $allPhotosStmt->get_result();
+                                    $allPhotos = [];
+                                    while ($photoRow = $allPhotosResult->fetch_assoc()) {
+                                        $allPhotos[] = $photoRow['photo'];
+                                    }
+                                    $allPhotosStmt->close();
+
+                                    $uniqueSliderID = 'slider-' . $product['id'];
+                                    ?>
+
+                                    <?php if (!empty($allPhotos)): ?>
+                                        <div class="product-photos-slider" id="<?php echo $uniqueSliderID; ?>">
+                                            <?php foreach ($allPhotos as $index => $photo): ?>
+                                                <img src="data:image/jpeg;base64,<?php echo $photo; ?>" 
+                                                     alt="<?php echo htmlspecialchars($product['product_name']); ?>"
+                                                     class="<?php echo $index === 0 ? 'active' : ''; ?>"
+                                                     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: <?php echo $index === 0 ? '1' : '0'; ?>; transition: opacity 0.6s ease;">
+                                            <?php endforeach; ?>
+                                            
+                                            <?php if (count($allPhotos) > 1): ?>
+                                            <div class="photo-indicators">
+                                                <?php for ($i = 0; $i < count($allPhotos); $i++): ?>
+                                                    <div class="photo-indicator <?php echo $i === 0 ? 'active' : ''; ?>"></div>
+                                                <?php endfor; ?>
+                                            </div>
+                                            <?php endif; ?>
+                                        </div>
                                     <?php else: ?>
                                         <i class="fas fa-tshirt"></i>
                                     <?php endif; ?>
                                 </div>
 
                                 <div class="product-badges">
-                                    <?php if ($product['discount'] > 0): ?>
-                                        <span class="badge badge-discount"><?php echo $product['discount']; ?>% OFF</span>
+                                    <?php if ($discount > 0): ?>
+                                        <span class="badge badge-discount"><?php echo $discount; ?>% OFF</span>
                                     <?php endif; ?>
                                     
-                                    <?php if ($product['stock_quantity'] <= 10): ?>
+                                    <?php if ($total_stock > 0 && $total_stock <= 10): ?>
                                         <span class="badge badge-stock">Low Stock</span>
                                     <?php endif; ?>
                                 </div>
@@ -1317,30 +1410,27 @@ $price_range = $price_range_result->fetch_assoc();
                                     <div class="product-category"><?php echo htmlspecialchars($product['category_name']); ?></div>
                                     <h3 class="product-name"><?php echo htmlspecialchars($product['product_name']); ?></h3>
                                     
-                                    <?php if ($product['gender'] !== null || $product['size'] !== null): ?>
-                                    <div class="product-attributes">
-                                        <?php if ($product['gender'] !== null): ?>
-                                        <span class="attribute-tag">
-                                            <i class="fas fa-venus-mars"></i>
-                                            <?php echo $product['gender'] == 0 ? 'Men' : 'Women'; ?>
-                                        </span>
-                                        <?php endif; ?>
-                                        
-                                        <?php if ($product['size'] !== null): ?>
-                                        <span class="attribute-tag">
-                                            <i class="fas fa-ruler"></i>
-                                            <?php echo htmlspecialchars($product['size']); ?>
-                                        </span>
+                                    <div class="product-sizes">
+                                        <?php if (!empty($sizes)): ?>
+                                            <?php foreach ($sizes as $sizeData): ?>
+                                                <span class="size-tag <?php echo $sizeData['quantity'] == 0 ? 'out-of-stock' : ''; ?>">
+                                                    <?php echo htmlspecialchars($sizeData['size']); ?>
+                                                </span>
+                                            <?php endforeach; ?>
+                                        <?php else: ?>
+                                            <span class="attribute-tag">
+                                                <i class="fas fa-ruler"></i>
+                                                No sizes available
+                                            </span>
                                         <?php endif; ?>
                                     </div>
-                                    <?php endif; ?>
                                 </div>
 
                                 <div class="product-footer">
                                     <div class="product-price-section">
                                         <div class="product-price">Rs.<?php echo number_format($final_price, 2); ?></div>
-                                        <?php if ($product['discount'] > 0): ?>
-                                            <div class="product-original-price">Rs.<?php echo number_format($product['price'], 2); ?></div>
+                                        <?php if ($discount > 0): ?>
+                                            <div class="product-original-price">Rs.<?php echo number_format($display_price, 2); ?></div>
                                         <?php endif; ?>
                                     </div>
 
@@ -1406,199 +1496,178 @@ $price_range = $price_range_result->fetch_assoc();
     <?php include 'Components/Footer.php'; ?>
 
     <script>
- // Add to Cart - Opens "Members Only" modal for non-logged-in users
-function addToCart(productId) {
-    // For testing/debugging - check if user is logged in
-    // Replace this with your actual session check
-    const isLoggedIn = false; // Change based on your PHP session: <?php echo isset($_SESSION['user_id']) ? 'true' : 'false'; ?>
-    
-    if (!isLoggedIn) {
-        console.log('Opening members only modal...'); // Debug log
-        openMembersOnlyModal();
-    } else {
-        // Add your cart logic here for logged-in users
-        console.log('Adding to cart: Product ID ' + productId);
-        // You can add AJAX call here to add to cart
-        alert('Product added to cart! (Product ID: ' + productId + ')');
-    }
-}
-
-// Members Only Modal Functions
-function openMembersOnlyModal() {
-    console.log('openMembersOnlyModal called'); // Debug log
-    const modal = document.getElementById('membersOnlyModal');
-    console.log('Modal element:', modal); // Debug log
-    
-    if (modal) {
-        modal.classList.add('active');
-        document.body.style.overflow = 'hidden';
-        console.log('Modal opened successfully'); // Debug log
-    } else {
-        console.error('Members Only Modal not found!'); // Error log
-    }
-}
-
-function closeMembersOnlyModal() {
-    const modal = document.getElementById('membersOnlyModal');
-    if (modal) {
-        modal.classList.remove('active');
-        document.body.style.overflow = '';
-    }
-}
-
-// Function to open navbar login modal from members only modal
-function openLoginFromMembersModal() {
-    closeMembersOnlyModal();
-    
-    // Wait a bit for modal to close, then try to trigger login
-    setTimeout(function() {
-        // Try multiple ways to open the login modal
-        const navLoginBtn = document.getElementById('loginBtn');
-        const loginLink = document.querySelector('[href*="login"]');
-        const loginModal = document.getElementById('loginModal');
-        
-        if (navLoginBtn) {
-            navLoginBtn.click();
-        } else if (loginModal) {
-            loginModal.classList.add('active');
-            document.body.style.overflow = 'hidden';
-        } else if (loginLink) {
-            loginLink.click();
-        } else {
-            // Fallback: redirect to login page or homepage
-            window.location.href = '/fashionhub/Homepage.php?action=login';
+        // Add to Cart - Opens "Members Only" modal for non-logged-in users
+        function addToCart(productId) {
+            const isLoggedIn = <?php echo isset($_SESSION['user_id']) ? 'true' : 'false'; ?>;
+            
+            if (!isLoggedIn) {
+                openMembersOnlyModal();
+            } else {
+                console.log('Adding to cart: Product ID ' + productId);
+                alert('Product added to cart! (Product ID: ' + productId + ')');
+            }
         }
-    }, 300);
-}
 
-// Function to open navbar signup modal from members only modal
-function openSignupFromMembersModal() {
-    closeMembersOnlyModal();
-    
-    // Wait a bit for modal to close, then try to trigger signup
-    setTimeout(function() {
-        // Try multiple ways to open the signup modal
-        const navSignupBtn = document.getElementById('signupBtn');
-        const signupLink = document.querySelector('[href*="signup"]');
-        const signupModal = document.getElementById('signupModal');
-        
-        if (navSignupBtn) {
-            navSignupBtn.click();
-        } else if (signupModal) {
-            signupModal.classList.add('active');
-            document.body.style.overflow = 'hidden';
-        } else if (signupLink) {
-            signupLink.click();
-        } else {
-            // Fallback: redirect to signup page or homepage
-            window.location.href = '/fashionhub/Homepage.php?action=signup';
+        // Members Only Modal Functions
+        function openMembersOnlyModal() {
+            const modal = document.getElementById('membersOnlyModal');
+            if (modal) {
+                modal.classList.add('active');
+                document.body.style.overflow = 'hidden';
+            }
         }
-    }, 300);
-}
 
-// Close members only modal on escape key
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-        const membersModal = document.getElementById('membersOnlyModal');
-        if (membersModal && membersModal.classList.contains('active')) {
+        function closeMembersOnlyModal() {
+            const modal = document.getElementById('membersOnlyModal');
+            if (modal) {
+                modal.classList.remove('active');
+                document.body.style.overflow = '';
+            }
+        }
+
+        function openLoginFromMembersModal() {
             closeMembersOnlyModal();
+            setTimeout(function() {
+                const navLoginBtn = document.getElementById('loginBtn');
+                const loginModal = document.getElementById('loginModal');
+                
+                if (navLoginBtn) {
+                    navLoginBtn.click();
+                } else if (loginModal) {
+                    loginModal.classList.add('active');
+                    document.body.style.overflow = 'hidden';
+                } else {
+                    window.location.href = '/fashionhub/Homepage.php?action=login';
+                }
+            }, 300);
         }
-        
-        const sidebar = document.getElementById('filtersSidebar');
-        if (sidebar && sidebar.classList.contains('active')) {
-            toggleFilters();
-        }
-    }
-});
 
-// Close members only modal when clicking outside
-document.addEventListener('DOMContentLoaded', function() {
-    const membersModal = document.getElementById('membersOnlyModal');
-    if (membersModal) {
-        membersModal.addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeMembersOnlyModal();
+        function openSignupFromMembersModal() {
+            closeMembersOnlyModal();
+            setTimeout(function() {
+                const navSignupBtn = document.getElementById('signupBtn');
+                const signupModal = document.getElementById('signupModal');
+                
+                if (navSignupBtn) {
+                    navSignupBtn.click();
+                } else if (signupModal) {
+                    signupModal.classList.add('active');
+                    document.body.style.overflow = 'hidden';
+                } else {
+                    window.location.href = '/fashionhub/Homepage.php?action=signup';
+                }
+            }, 300);
+        }
+
+        // Close modals on escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                const membersModal = document.getElementById('membersOnlyModal');
+                if (membersModal && membersModal.classList.contains('active')) {
+                    closeMembersOnlyModal();
+                }
+                
+                const sidebar = document.getElementById('filtersSidebar');
+                if (sidebar && sidebar.classList.contains('active')) {
+                    toggleFilters();
+                }
             }
         });
-    }
-    
-    // Test if modal exists on page load
-    console.log('Members Only Modal exists:', !!membersModal);
-});
 
-// Quick View
-function quickView(productId) {
-    window.location.href = '/fashionhub/ProductDetails.php?id=' + productId;
-}
+        // Close members only modal when clicking outside
+        document.addEventListener('DOMContentLoaded', function() {
+            const membersModal = document.getElementById('membersOnlyModal');
+            if (membersModal) {
+                membersModal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        closeMembersOnlyModal();
+                    }
+                });
+            }
+        });
 
-// View Toggle
-function setView(view) {
-    const grid = document.getElementById('productsGrid');
-    const gridBtn = document.getElementById('gridViewBtn');
-    const listBtn = document.getElementById('listViewBtn');
-    const cards = document.querySelectorAll('.product-card');
+        // Quick View
+        function quickView(productId) {
+            window.location.href = '/fashionhub/ProductDetails.php?id=' + productId;
+        }
 
-    if (view === 'grid') {
-        grid.classList.remove('list-view');
-        gridBtn.classList.add('active');
-        listBtn.classList.remove('active');
-        cards.forEach(card => card.classList.remove('list-view'));
-    } else {
-        grid.classList.add('list-view');
-        listBtn.classList.add('active');
-        gridBtn.classList.remove('active');
-        cards.forEach(card => card.classList.add('list-view'));
-    }
+        // View Toggle
+        function setView(view) {
+            const grid = document.getElementById('productsGrid');
+            const gridBtn = document.getElementById('gridViewBtn');
+            const listBtn = document.getElementById('listViewBtn');
+            const cards = document.querySelectorAll('.product-card');
 
-    localStorage.setItem('preferredView', view);
-}
+            if (view === 'grid') {
+                grid.classList.remove('list-view');
+                gridBtn.classList.add('active');
+                listBtn.classList.remove('active');
+                cards.forEach(card => card.classList.remove('list-view'));
+            } else {
+                grid.classList.add('list-view');
+                listBtn.classList.add('active');
+                gridBtn.classList.remove('active');
+                cards.forEach(card => card.classList.add('list-view'));
+            }
 
-// Load preferred view
-window.addEventListener('DOMContentLoaded', function() {
-    const preferredView = localStorage.getItem('preferredView') || 'grid';
-    setView(preferredView);
-});
+            localStorage.setItem('preferredView', view);
+        }
 
-// Sort Change
-function changeSort(sortValue) {
-    const url = new URL(window.location.href);
-    url.searchParams.set('sort', sortValue);
-    window.location.href = url.toString();
-}
+        // Load preferred view
+        window.addEventListener('DOMContentLoaded', function() {
+            const preferredView = localStorage.getItem('preferredView') || 'grid';
+            setView(preferredView);
+        });
 
-// Size Selection
-function selectSize(size) {
-    const sizeInput = document.getElementById('sizeInput');
-    const currentSize = sizeInput.value;
-    
-    if (currentSize === size) {
-        sizeInput.value = '';
-    } else {
-        sizeInput.value = size;
-    }
-    
-    document.getElementById('filtersForm').submit();
-}
+        // Sort Change
+        function changeSort(sortValue) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('sort', sortValue);
+            window.location.href = url.toString();
+        }
 
-function clearSize() {
-    document.getElementById('sizeInput').value = '';
-    document.getElementById('filtersForm').submit();
-}
+        // Mobile Filter Toggle
+        function toggleFilters() {
+            const sidebar = document.getElementById('filtersSidebar');
+            const overlay = document.getElementById('filterOverlay');
+            
+            sidebar.classList.toggle('active');
+            overlay.classList.toggle('active');
+            document.body.style.overflow = sidebar.classList.contains('active') ? 'hidden' : '';
+        }
 
-// Mobile Filter Toggle
-function toggleFilters() {
-    const sidebar = document.getElementById('filtersSidebar');
-    const overlay = document.getElementById('filterOverlay');
-    
-    sidebar.classList.toggle('active');
-    overlay.classList.toggle('active');
-    document.body.style.overflow = sidebar.classList.contains('active') ? 'hidden' : '';
-}
+        // Smooth scroll to top when changing filters
+        document.getElementById('filtersForm').addEventListener('submit', function() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
 
-// Smooth scroll to top when changing filters
-document.getElementById('filtersForm').addEventListener('submit', function() {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-});
+        // Auto-rotate product photos
+        document.addEventListener('DOMContentLoaded', function() {
+            const sliders = document.querySelectorAll('.product-photos-slider');
+            
+            sliders.forEach(slider => {
+                const images = slider.querySelectorAll('img');
+                const indicators = slider.querySelectorAll('.photo-indicator');
+                
+                if (images.length <= 1) return;
+                
+                let currentIndex = 0;
+                
+                setInterval(() => {
+                    images[currentIndex].style.opacity = '0';
+                    if (indicators.length > 0) {
+                        indicators[currentIndex].classList.remove('active');
+                    }
+                    
+                    currentIndex = (currentIndex + 1) % images.length;
+                    
+                    images[currentIndex].style.opacity = '1';
+                    if (indicators.length > 0) {
+                        indicators[currentIndex].classList.add('active');
+                    }
+                }, 3000);
+            });
+        });
     </script>
 </body>
 </html>

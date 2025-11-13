@@ -2,6 +2,7 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+include '../db_connect.php';
 
 // Check if user is logged in
 if (!isset($_SESSION['user_id'])) {
@@ -9,24 +10,14 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-$servername = "localhost";
-$username = "root";
-$password = "";
-$database = "fashionhubdb";
-
-$conn = new mysqli($servername, $username, $password, $database);
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
-
 $user_id = $_SESSION['user_id'];
 
-// Handle Order Deletion - MUST BE BEFORE ANY OUTPUT
+// Handle Order Deletion
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_order'])) {
     $order_id = intval($_POST['order_id']);
     
-    // First, get the order details to restore stock
-    $order_query = "SELECT product_id, quantity FROM orders WHERE id = ? AND user_id = ?";
+
+    $order_query = "SELECT * FROM orders WHERE id = ? AND user_id = ?";
     $stmt = $conn->prepare($order_query);
     $stmt->bind_param("ii", $order_id, $user_id);
     $stmt->execute();
@@ -34,18 +25,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_order'])) {
     
     if ($order_result->num_rows > 0) {
         $order = $order_result->fetch_assoc();
-        $product_id = $order['product_id'];
         $quantity = $order['quantity'];
         
         // Start transaction
         $conn->begin_transaction();
         
         try {
-            // Restore product stock quantity
-            $update_stock = "UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?";
-            $stmt = $conn->prepare($update_stock);
-            $stmt->bind_param("ii", $quantity, $product_id);
-            $stmt->execute();
+            // Restore stock to product_sizes (current structure only uses size_id)
+            if (isset($order['size_id']) && !empty($order['size_id'])) {
+                $update_stock = "UPDATE product_sizes SET quantity = quantity + ? WHERE id = ?";
+                $stmt = $conn->prepare($update_stock);
+                $stmt->bind_param("ii", $quantity, $order['size_id']);
+                $stmt->execute();
+            }
             
             // Delete the order
             $delete_order = "DELETE FROM orders WHERE id = ? AND user_id = ?";
@@ -61,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_order'])) {
         } catch (Exception $e) {
             // Rollback on error
             $conn->rollback();
-            $_SESSION['message'] = "Error deleting order. Please try again.";
+            $_SESSION['message'] = "Error deleting order: " . $e->getMessage();
             $_SESSION['message_type'] = "error";
         }
     } else {
@@ -69,13 +61,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_order'])) {
         $_SESSION['message_type'] = "error";
     }
     
-    // Redirect to prevent form resubmission
+    
     header("Location: CustomerOrders.php");
     exit;
 }
 
-// Include navbar AFTER handling POST requests
+
 include 'Components/CustomerNavBar.php';
+
 
 // Handle Search and Filter
 $search = "";
@@ -94,16 +87,28 @@ if (isset($_GET['status']) && $_GET['status'] !== '') {
 
 $where_sql = "WHERE " . implode(" AND ", $where_clauses);
 
-// Fetch customer's orders with product details
+// Query based on current structure (orders has product_id)
 $query = "SELECT o.*, 
-          p.product_name, 
-          p.product_photo 
+          p.product_name
           FROM orders o
           LEFT JOIN products p ON o.product_id = p.id
           $where_sql
           ORDER BY o.order_date DESC";
+
 $result = $conn->query($query);
 
+
+if ($result && $result->num_rows > 0) {
+    $result->data_seek(0);
+    $debug_row = $result->fetch_assoc();
+    echo "<!-- DEBUG: ";
+    echo "has_size_id: " . ($has_size_id ? 'YES' : 'NO') . " | ";
+    echo "size value: " . ($debug_row['size'] ?? 'NULL') . " | ";
+    echo "size_id_ref: " . ($debug_row['size_id_ref'] ?? 'NULL') . " | ";
+    echo "Query: " . $query;
+    echo " -->";
+    $result->data_seek(0);
+}
 // Get order statistics for this customer
 $stats_query = "SELECT 
     COUNT(*) as total_orders,
@@ -394,25 +399,88 @@ $status_labels = [
             border-bottom: 2px solid #f0f0f0;
         }
 
-        .product-image {
-            width: 100px;
-            height: 100px;
+        .product-image-container {
+            width: 120px;
+            flex-shrink: 0;
+        }
+
+        .product-image-slider {
+            position: relative;
+            width: 120px;
+            height: 120px;
             border-radius: 12px;
-            object-fit: cover;
+            overflow: hidden;
             background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        }
+
+        .product-image-slider img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+        }
+
+        .product-image-slider img.active {
+            display: block;
+        }
+
+        .product-image-slider .no-image {
+            width: 100%;
+            height: 100%;
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-size: 40px;
-            flex-shrink: 0;
+            font-size: 48px;
         }
 
-        .product-image img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
+        .slider-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            border: none;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            z-index: 10;
+        }
+
+        .slider-btn:hover {
+            background: rgba(0, 0, 0, 0.8);
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        .slider-btn.prev {
+            left: 5px;
+        }
+
+        .slider-btn.next {
+            right: 5px;
+        }
+
+        .slider-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .image-counter {
+            position: absolute;
+            bottom: 5px;
+            right: 5px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 3px 8px;
             border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
         }
 
         .product-details {
@@ -442,6 +510,15 @@ $status_labels = [
 
         .meta-item i {
             color: #e74c3c;
+        }
+
+        .size-badge {
+            background: #e74c3c;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 13px;
         }
 
         .order-info {
@@ -635,6 +712,29 @@ $status_labels = [
             border-left: 4px solid #e74c3c;
         }
 
+        .modal-image-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+            grid-column: 1 / -1;
+        }
+
+        .modal-image-gallery img {
+            width: 100%;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid #e8e8e8;
+        }
+
+        .modal-image-gallery img:hover {
+            transform: scale(1.05);
+            border-color: #e74c3c;
+        }
+
         /* Empty State */
         .empty-state {
             text-align: center;
@@ -715,6 +815,10 @@ $status_labels = [
                 text-align: center;
             }
 
+            .product-image-container {
+                margin: 0 auto;
+            }
+
             .order-info {
                 grid-template-columns: 1fr;
             }
@@ -751,8 +855,6 @@ $status_labels = [
                 unset($_SESSION['message_type']);
             ?>
         <?php endif; ?>
-
-
 
         <!-- Statistics Cards -->
         <div class="stats-grid">
@@ -817,8 +919,69 @@ $status_labels = [
         <!-- Orders List -->
         <div class="orders-list">
             <?php if ($result->num_rows > 0): ?>
-                <?php while ($row = $result->fetch_assoc()): ?>
-                    <?php $statusInfo = $status_labels[$row['status']]; ?>
+               <?php while ($row = $result->fetch_assoc()): ?>
+    <?php 
+    $statusInfo = $status_labels[$row['status']];
+    
+    // Get size information from product_sizes table
+    $display_size = 'Standard';
+    $original_price = $row['price'];
+    $discount = 0;
+    $discounted_price = $original_price;
+    $size_id = null;
+    $photos = [];
+    
+    // Check if order has a 'size' column (stored as text)
+    if (isset($row['size']) && !empty($row['size'])) {
+        $display_size = $row['size'];
+        
+        // Get size details from product_sizes
+        $sizeStmt = $conn->prepare("SELECT ps.id, ps.price, ps.discount 
+                                    FROM product_sizes ps 
+                                    WHERE ps.product_id = ? AND ps.size = ?");
+        $sizeStmt->bind_param("is", $row['product_id'], $row['size']);
+        $sizeStmt->execute();
+        $sizeResult = $sizeStmt->get_result();
+        
+        if ($sizeRow = $sizeResult->fetch_assoc()) {
+            $size_id = $sizeRow['id'];
+            $original_price = $sizeRow['price'];
+            $discount = $sizeRow['discount'];
+            $discounted_price = $original_price - ($original_price * $discount / 100);
+        }
+        $sizeStmt->close();
+    } else {
+        // No size stored, get first available size
+        $sizeStmt = $conn->prepare("SELECT ps.id, ps.size, ps.price, ps.discount 
+                                    FROM product_sizes ps 
+                                    WHERE ps.product_id = ? 
+                                    LIMIT 1");
+        $sizeStmt->bind_param("i", $row['product_id']);
+        $sizeStmt->execute();
+        $sizeResult = $sizeStmt->get_result();
+        
+        if ($sizeRow = $sizeResult->fetch_assoc()) {
+            $size_id = $sizeRow['id'];
+            $display_size = $sizeRow['size'];
+            $original_price = $sizeRow['price'];
+            $discount = $sizeRow['discount'];
+            $discounted_price = $original_price - ($original_price * $discount / 100);
+        }
+        $sizeStmt->close();
+    }
+    
+    // Get photos for this size
+    if ($size_id) {
+        $photosStmt = $conn->prepare("SELECT photo FROM photos WHERE size_id = ?");
+        $photosStmt->bind_param("i", $size_id);
+        $photosStmt->execute();
+        $photosResult = $photosStmt->get_result();
+        while ($photo = $photosResult->fetch_assoc()) {
+            $photos[] = $photo['photo'];
+        }
+        $photosStmt->close();
+    }
+    ?>
                     <div class="order-card">
                         <div class="order-header">
                             <div>
@@ -836,30 +999,66 @@ $status_labels = [
 
                         <div class="order-body">
                             <div class="order-product">
-                                <div class="product-image">
-                                    <?php if (!empty($row['product_photo'])): ?>
-                                        <img src="data:image/jpeg;base64,<?php echo $row['product_photo']; ?>" 
-                                             alt="<?php echo htmlspecialchars($row['product_name']); ?>">
-                                    <?php else: ?>
-                                        <i class="fas fa-box"></i>
-                                    <?php endif; ?>
+                                <div class="product-image-container">
+                                    <div class="product-image-slider" id="slider-<?php echo $row['id']; ?>">
+                                        <?php if (!empty($photos)): ?>
+                                            <?php foreach ($photos as $index => $photo): ?>
+                                                <img src="data:image/jpeg;base64,<?php echo $photo; ?>" 
+                                                     alt="<?php echo htmlspecialchars($row['product_name']); ?>"
+                                                     class="<?php echo $index === 0 ? 'active' : ''; ?>"
+                                                     data-index="<?php echo $index; ?>">
+                                            <?php endforeach; ?>
+                                            <?php if (count($photos) > 1): ?>
+                                                <button class="slider-btn prev" onclick="changeSlide(<?php echo $row['id']; ?>, -1)">
+                                                    <i class="fas fa-chevron-left"></i>
+                                                </button>
+                                                <button class="slider-btn next" onclick="changeSlide(<?php echo $row['id']; ?>, 1)">
+                                                    <i class="fas fa-chevron-right"></i>
+                                                </button>
+                                                <div class="image-counter">
+                                                    <span id="counter-<?php echo $row['id']; ?>">1</span> / <?php echo count($photos); ?>
+                                                </div>
+                                            <?php endif; ?>
+                                        <?php else: ?>
+                                            <div class="no-image">
+                                                <i class="fas fa-box"></i>
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
                                 </div>
                                 <div class="product-details">
                                     <div class="product-name"><?php echo htmlspecialchars($row['product_name']); ?></div>
                                     <div class="product-meta">
                                         <div class="meta-item">
+                                            <i class="fas fa-tag"></i>
+                                            <span>Size: <span class="size-badge"><?php echo htmlspecialchars($display_size); ?></span></span>
+                                        </div>
+                                        <div class="meta-item">
                                             <i class="fas fa-cube"></i>
                                             <span>Qty: <?php echo $row['quantity']; ?></span>
                                         </div>
-                                        <div class="meta-item">
-                                            <i class="fas fa-tag"></i>
-                                            <span>Rs. <?php echo number_format($row['price'], 2); ?> each</span>
-                                        </div>
+                                        <?php if ($discount > 0): ?>
+                                            <div class="meta-item">
+                                                <i class="fas fa-percent"></i>
+                                                <span style="color: #e74c3c; font-weight: 600;"><?php echo number_format($discount, 0); ?>% OFF</span>
+                                            </div>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
                             </div>
 
                             <div class="order-info">
+                                <div class="info-item">
+                                    <span class="info-label">Unit Price</span>
+                                    <span class="info-value">
+                                        <?php if ($discount > 0): ?>
+                                            <span style="text-decoration: line-through; color: #999; font-size: 14px;">Rs. <?php echo number_format($original_price, 2); ?></span>
+                                            <span style="color: #e74c3c;">Rs. <?php echo number_format($discounted_price, 2); ?></span>
+                                        <?php else: ?>
+                                            Rs. <?php echo number_format($original_price, 2); ?>
+                                        <?php endif; ?>
+                                    </span>
+                                </div>
                                 <div class="info-item">
                                     <span class="info-label">Phone</span>
                                     <span class="info-value"><?php echo htmlspecialchars($row['phone']); ?></span>
@@ -877,18 +1076,20 @@ $status_labels = [
                                 <div class="total-price">Rs. <?php echo number_format($row['total_price'], 2); ?></div>
                             </div>
                             <div class="order-actions">
-                                <button class="view-details-btn" onclick='openModal(<?php echo json_encode($row); ?>)'>
+                                <button class="view-details-btn" onclick='openModal(<?php echo json_encode(array_merge($row, ["photos" => $photos, "discounted_price" => $discounted_price, "discount" => $discount, "display_size" => $display_size, "original_price" => $original_price])); ?>)'>
                                     <i class="fas fa-eye"></i>
                                     View Details
                                 </button>
-                                <form method="POST" style="display: inline;" onsubmit="return confirmDelete('<?php echo htmlspecialchars($row['product_name']); ?>', <?php echo $row['quantity']; ?>)">
-                                    <input type="hidden" name="delete_order" value="1">
-                                    <input type="hidden" name="order_id" value="<?php echo $row['id']; ?>">
-                                    <button type="submit" class="delete-order-btn">
-                                        <i class="fas fa-trash-alt"></i>
-                                        Delete Order
-                                    </button>
-                                </form>
+                                <?php if ($row['status'] == 0): ?>
+                                    <form method="POST" style="display: inline;" onsubmit="return confirmDelete('<?php echo htmlspecialchars($row['product_name']); ?>', <?php echo $row['quantity']; ?>, '<?php echo htmlspecialchars($display_size); ?>')">
+                                        <input type="hidden" name="delete_order" value="1">
+                                        <input type="hidden" name="order_id" value="<?php echo $row['id']; ?>">
+                                        <button type="submit" class="delete-order-btn">
+                                            <i class="fas fa-trash-alt"></i>
+                                            Delete Order
+                                        </button>
+                                    </form>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>
@@ -896,8 +1097,8 @@ $status_labels = [
             <?php else: ?>
                 <div class="empty-state">
                     <i class="fas fa-shopping-bag"></i>
-                    <h3>No Orders Yet</h3>
-                    <p>You haven't placed any orders. Start shopping now!</p>
+                    <h3>No Orders Found</h3>
+                    <p>You haven't placed any orders matching your search criteria.</p>
                     <a href="Products.php" class="shop-now-btn">
                         <i class="fas fa-shopping-cart"></i>
                         Shop Now
@@ -925,8 +1126,37 @@ $status_labels = [
     <script>
         const statusLabels = <?php echo json_encode($status_labels); ?>;
 
-        function confirmDelete(productName, quantity) {
-            return confirm(`Are you sure you want to delete this order?\n\nProduct: ${productName}\nQuantity: ${quantity}\n\nThe stock quantity will be restored.`);
+        // Image slider functionality
+        const sliderStates = {};
+
+        function changeSlide(orderId, direction) {
+            const slider = document.getElementById(`slider-${orderId}`);
+            const images = slider.querySelectorAll('img');
+            const counter = document.getElementById(`counter-${orderId}`);
+            
+            if (!sliderStates[orderId]) {
+                sliderStates[orderId] = 0;
+            }
+            
+            images[sliderStates[orderId]].classList.remove('active');
+            
+            sliderStates[orderId] += direction;
+            
+            if (sliderStates[orderId] < 0) {
+                sliderStates[orderId] = images.length - 1;
+            } else if (sliderStates[orderId] >= images.length) {
+                sliderStates[orderId] = 0;
+            }
+            
+            images[sliderStates[orderId]].classList.add('active');
+            
+            if (counter) {
+                counter.textContent = sliderStates[orderId] + 1;
+            }
+        }
+
+        function confirmDelete(productName, quantity, size) {
+            return confirm(`Are you sure you want to delete this order?\n\nProduct: ${productName}\nSize: ${size}\nQuantity: ${quantity}\n\nThe stock quantity will be restored.`);
         }
 
         function openModal(data) {
@@ -935,7 +1165,34 @@ $status_labels = [
             
             const statusInfo = statusLabels[data.status];
             
+            let photosHtml = '';
+            if (data.photos && data.photos.length > 0) {
+                photosHtml = `
+                    <div class="modal-image-gallery">
+                        ${data.photos.map(photo => `
+                            <img src="data:image/jpeg;base64,${photo}" alt="Product photo" onclick="viewFullImage(this.src)">
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            const discount = parseFloat(data.discount || 0);
+            const originalPrice = parseFloat(data.original_price || data.price);
+            const discountedPrice = parseFloat(data.discounted_price || data.price);
+            
+            let priceHtml = '';
+            if (discount > 0) {
+                priceHtml = `
+                    <span style="text-decoration: line-through; color: #999; font-size: 14px; display: block;">Rs. ${originalPrice.toFixed(2)}</span>
+                    <span style="color: #e74c3c; font-size: 18px; font-weight: 700;">Rs. ${discountedPrice.toFixed(2)}</span>
+                    <span style="color: #27ae60; font-size: 13px; display: block;">(${discount.toFixed(0)}% discount applied)</span>
+                `;
+            } else {
+                priceHtml = `Rs. ${originalPrice.toFixed(2)}`;
+            }
+            
             content.innerHTML = `
+                ${photosHtml}
                 <div class="detail-group">
                     <span class="detail-label">Order ID</span>
                     <span class="detail-value">#${data.id}</span>
@@ -955,16 +1212,18 @@ $status_labels = [
                     <span class="detail-value">${data.product_name}</span>
                 </div>
                 <div class="detail-group">
+                    <span class="detail-label">Size</span>
+                    <span class="detail-value">
+                        <span class="size-badge">${data.display_size || 'Standard'}</span>
+                    </span>
+                </div>
+                <div class="detail-group">
                     <span class="detail-label">Quantity</span>
                     <span class="detail-value">${data.quantity} units</span>
                 </div>
                 <div class="detail-group">
                     <span class="detail-label">Unit Price</span>
-                    <span class="detail-value">Rs. ${parseFloat(data.price).toFixed(2)}</span>
-                </div>
-                <div class="detail-group">
-                    <span class="detail-label">Total Price</span>
-                    <span class="detail-value" style="color: #27ae60; font-size: 20px;">Rs. ${parseFloat(data.total_price).toFixed(2)}</span>
+                    <span class="detail-value">${priceHtml}</span>
                 </div>
                 <div class="detail-group">
                     <span class="detail-label">Phone Number</span>
@@ -983,6 +1242,10 @@ $status_labels = [
                     <span class="detail-label">Delivery Address</span>
                     <span class="detail-value">${data.delivery_address}</span>
                 </div>
+                <div class="detail-group" style="grid-column: 1 / -1; margin-top: 10px; padding-top: 20px; border-top: 2px solid #f0f0f0;">
+                    <span class="detail-label">Total Amount Paid</span>
+                    <span class="detail-value" style="color: #27ae60; font-size: 24px;">Rs. ${parseFloat(data.total_price).toFixed(2)}</span>
+                </div>
             `;
             
             modal.classList.add('active');
@@ -990,6 +1253,24 @@ $status_labels = [
 
         function closeModal() {
             document.getElementById('orderModal').classList.remove('active');
+        }
+
+        function viewFullImage(src) {
+            const imgWindow = window.open('', '_blank');
+            imgWindow.document.write(`
+                <html>
+                <head>
+                    <title>Product Image</title>
+                    <style>
+                        body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #000; }
+                        img { max-width: 100%; max-height: 100vh; object-fit: contain; }
+                    </style>
+                </head>
+                <body>
+                    <img src="${src}" alt="Product Image">
+                </body>
+                </html>
+            `);
         }
 
         // Close modal when clicking outside
@@ -1006,7 +1287,17 @@ $status_labels = [
                 closeModal();
             }
         });
+
+        // Auto-hide alerts after 5 seconds
+        setTimeout(() => {
+            const alerts = document.querySelectorAll('.alert');
+            alerts.forEach(alert => {
+                alert.style.transition = 'opacity 0.3s ease';
+                alert.style.opacity = '0';
+                setTimeout(() => alert.remove(), 300);
+            });
+        }, 5000);
     </script>
-      <?php include 'Components/Footer.php'; ?>
+    <?php include 'Components/Footer.php'; ?>
 </body>
 </html>

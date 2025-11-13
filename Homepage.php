@@ -20,18 +20,24 @@ $categories_query = "SELECT c.id, c.category_name, c.category_photo, COUNT(p.id)
                      LIMIT 6";
 $categories_result = $conn->query($categories_query);
 
-// Fetch featured products (top 4)
-$featured_products_query = "SELECT p.id, p.product_name, p.product_photo, p.stock_quantity, 
-                            p.price, p.discount, c.category_name 
+// Fetch featured products (top 4) with total stock from all sizes
+$featured_products_query = "SELECT p.id, p.product_name, p.price, c.category_name,
+                            SUM(ps.quantity) as total_stock,
+                            MIN(ps.price) as min_price,
+                            MAX(ps.discount) as max_discount
                             FROM products p 
                             LEFT JOIN categories c ON p.category_id = c.id 
-                            WHERE p.stock_quantity > 0 
+                            LEFT JOIN product_sizes ps ON p.id = ps.product_id
+                            GROUP BY p.id, p.product_name, p.price, c.category_name
+                            HAVING total_stock > 0
                             ORDER BY p.id DESC 
                             LIMIT 4";
 $featured_products = $conn->query($featured_products_query);
 
-// Fetch a hero image (latest product with image)
-$hero_image_query = "SELECT product_photo FROM products WHERE product_photo IS NOT NULL ORDER BY id DESC LIMIT 1";
+// Fetch a hero image (latest product with image from photos table)
+$hero_image_query = "SELECT ph.photo FROM photos ph 
+                     INNER JOIN products p ON ph.product_id = p.id 
+                     ORDER BY p.id DESC LIMIT 1";
 $hero_image_result = $conn->query($hero_image_query);
 $hero_image = $hero_image_result->fetch_assoc();
 ?>
@@ -891,17 +897,17 @@ $hero_image = $hero_image_result->fetch_assoc();
             </div>
 
             <div class="hero-image">
-                <div class="hero-visual">
-                    <?php if (!empty($hero_image['product_photo'])): ?>
-                        <img src="data:image/jpeg;base64,<?php echo $hero_image['product_photo']; ?>" 
-                             alt="Featured Product"
-                             style="width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; border-radius: 30px;"
-                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                        <i class="fas fa-gem" style="display: none;"></i>
-                    <?php else: ?>
-                        <i class="fas fa-gem"></i>
-                    <?php endif; ?>
-                </div>
+<div class="hero-visual">
+    <?php if (!empty($hero_image['photo'])): ?>
+        <img src="data:image/jpeg;base64,<?php echo $hero_image['photo']; ?>" 
+             alt="Featured Product"
+             style="width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; border-radius: 30px;"
+             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+        <i class="fas fa-gem" style="display: none;"></i>
+    <?php else: ?>
+        <i class="fas fa-gem"></i>
+    <?php endif; ?>
+</div>
                 
                 <div class="floating-card card-1">
                     <div class="card-icon">
@@ -995,53 +1001,68 @@ $hero_image = $hero_image_result->fetch_assoc();
         </div>
 
         <div class="products-grid">
-            <?php while ($product = $featured_products->fetch_assoc()): ?>
-                <?php 
-                    // Calculate final price after discount
-                    $final_price = $product['price'] - ($product['price'] * $product['discount'] / 100);
-                ?>
-                <div class="product-card" onclick="window.location.href='/fashionhub/Collections.php'">
-                    <div class="product-image">
-                        <?php if (!empty($product['product_photo'])): ?>
-                            <img src="data:image/jpeg;base64,<?php echo $product['product_photo']; ?>" 
-                                 alt="<?php echo htmlspecialchars($product['product_name']); ?>"
-                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                            <i class="fas fa-tshirt" style="display: none;"></i>
-                        <?php else: ?>
-                            <i class="fas fa-tshirt"></i>
-                        <?php endif; ?>
-                        <?php if ($product['stock_quantity'] > 0 && $product['stock_quantity'] <= 10): ?>
-                            <div class="product-badge">Low Stock</div>
-                        <?php elseif ($product['stock_quantity'] == 0): ?>
-                            <div class="product-badge" style="background: #95a5a6;">Out of Stock</div>
-                        <?php endif; ?>
-                        <?php if ($product['discount'] > 0): ?>
-                            <div class="product-badge" style="left: 15px; right: auto; background: #e74c3c;">
-                                <?php echo $product['discount']; ?>% OFF
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                    <div class="product-info">
-                        <div class="product-category"><?php echo htmlspecialchars($product['category_name']); ?></div>
-                        <h3 class="product-name"><?php echo htmlspecialchars($product['product_name']); ?></h3>
-                        <div class="product-footer">
-                            <div>
-                                <span class="product-price">Rs.<?php echo number_format($final_price, 2); ?></span>
-                                <?php if ($product['discount'] > 0): ?>
-                                    <div style="font-size: 14px; color: #999; text-decoration: line-through; margin-top: 4px;">
-                                        Rs.<?php echo number_format($product['price'], 2); ?>
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-                            <?php if ($product['stock_quantity'] > 0): ?>
-                                <button class="product-btn" onclick="event.stopPropagation();">
-                                    <i class="fas fa-shopping-cart"></i> View
-                                </button>
-                            <?php endif; ?>
-                        </div>
-                    </div>
+<?php while ($product = $featured_products->fetch_assoc()): ?>
+    <?php 
+        // Get the first photo for this product
+        $photoStmt = $conn->prepare("SELECT photo FROM photos WHERE product_id = ? LIMIT 1");
+        $photoStmt->bind_param("i", $product['id']);
+        $photoStmt->execute();
+        $photoResult = $photoStmt->get_result();
+        $productPhoto = $photoResult->fetch_assoc();
+        $photoStmt->close();
+        
+        // Use size-specific pricing if available, otherwise use base price
+        $display_price = !empty($product['min_price']) ? $product['min_price'] : $product['price'];
+        $discount = !empty($product['max_discount']) ? $product['max_discount'] : 0;
+        
+        // Calculate final price after discount
+        $final_price = $display_price - ($display_price * $discount / 100);
+        $total_stock = $product['total_stock'] ?? 0;
+    ?>
+    <div class="product-card" onclick="window.location.href='/fashionhub/Collections.php'">
+        <div class="product-image">
+            <?php if ($productPhoto && !empty($productPhoto['photo'])): ?>
+                <img src="data:image/jpeg;base64,<?php echo $productPhoto['photo']; ?>" 
+                     alt="<?php echo htmlspecialchars($product['product_name']); ?>"
+                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                <i class="fas fa-tshirt" style="display: none;"></i>
+            <?php else: ?>
+                <i class="fas fa-tshirt"></i>
+            <?php endif; ?>
+            
+            <?php if ($total_stock > 0 && $total_stock <= 10): ?>
+                <div class="product-badge">Low Stock</div>
+            <?php elseif ($total_stock == 0): ?>
+                <div class="product-badge" style="background: #95a5a6;">Out of Stock</div>
+            <?php endif; ?>
+            
+            <?php if ($discount > 0): ?>
+                <div class="product-badge" style="left: 15px; right: auto; background: #e74c3c;">
+                    <?php echo $discount; ?>% OFF
                 </div>
-            <?php endwhile; ?>
+            <?php endif; ?>
+        </div>
+        <div class="product-info">
+            <div class="product-category"><?php echo htmlspecialchars($product['category_name']); ?></div>
+            <h3 class="product-name"><?php echo htmlspecialchars($product['product_name']); ?></h3>
+            <div class="product-footer">
+                <div>
+                    <span class="product-price">Rs.<?php echo number_format($final_price, 2); ?></span>
+                    <?php if ($discount > 0): ?>
+                        <div style="font-size: 14px; color: #999; text-decoration: line-through; margin-top: 4px;">
+                            Rs.<?php echo number_format($display_price, 2); ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                <?php if ($total_stock > 0): ?>
+                    <button class="product-btn" onclick="event.stopPropagation();">
+                        <i class="fas fa-shopping-cart"></i> View
+                    </button>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+<?php endwhile; ?>
         </div>
 
         <div style="text-align: center; margin-top: 60px;">
