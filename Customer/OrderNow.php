@@ -91,9 +91,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
     $selected_size_data = $size_result->fetch_assoc();
     
     if (!$selected_size_data) {
+        // Store error in session for navbar to display
+        $_SESSION['message'] = 'Invalid size selected!';
+        $_SESSION['messageType'] = 'error';
         echo json_encode(['success' => false, 'message' => 'Invalid size selected!']);
         exit;
     } elseif ($quantity < 1 || $quantity > $selected_size_data['quantity']) {
+        $_SESSION['message'] = 'Invalid quantity selected!';
+        $_SESSION['messageType'] = 'error';
         echo json_encode(['success' => false, 'message' => 'Invalid quantity selected!']);
         exit;
     }
@@ -116,9 +121,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
         
         // Check if new quantity exceeds stock
         if ($new_quantity > $selected_size_data['quantity']) {
+            $error_msg = 'Cannot add more items. Only ' . $selected_size_data['quantity'] . ' items available in stock.';
+            $_SESSION['message'] = $error_msg;
+            $_SESSION['messageType'] = 'error';
             echo json_encode([
                 'success' => false, 
-                'message' => 'Cannot add more items. Only ' . $selected_size_data['quantity'] . ' items available in stock.'
+                'message' => $error_msg
             ]);
             exit;
         }
@@ -129,6 +137,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
         $stmt->bind_param("iddi", $new_quantity, $unit_price, $new_total, $cart_item['id']);
         
         if (!$stmt->execute()) {
+            $_SESSION['message'] = 'Failed to update cart!';
+            $_SESSION['messageType'] = 'error';
             echo json_encode(['success' => false, 'message' => 'Failed to update cart!']);
             exit;
         }
@@ -140,6 +150,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
         $stmt->bind_param("iiisidd", $user_id, $product_id, $selected_size_id, $selected_size_data['size'], $quantity, $unit_price, $total_price);
         
         if (!$stmt->execute()) {
+            $_SESSION['message'] = 'Failed to add to cart!';
+            $_SESSION['messageType'] = 'error';
             echo json_encode(['success' => false, 'message' => 'Failed to add to cart!']);
             exit;
         }
@@ -188,6 +200,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
         $cart_items_array[] = $row;
     }
     
+    // Store success message in session
+    $_SESSION['message'] = 'Product added to cart successfully!';
+    $_SESSION['messageType'] = 'success';
+    
     echo json_encode([
         'success' => true, 
         'message' => 'Product added to cart successfully!',
@@ -196,115 +212,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
         'cart_items' => $cart_items_array
     ]);
     exit;
-}
-
-// Handle Add to Cart submission
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
-    $selected_size_id = intval($_POST['selected_size_id']);
-    $quantity = intval($_POST['quantity']);
-    
-    // Get selected size details
-    $size_sql = "SELECT * FROM product_sizes WHERE id = ? AND product_id = ?";
-    $stmt = $conn->prepare($size_sql);
-    $stmt->bind_param("ii", $selected_size_id, $product_id);
-    $stmt->execute();
-    $size_result = $stmt->get_result();
-    $selected_size_data = $size_result->fetch_assoc();
-    
-    if (!$selected_size_data) {
-        echo json_encode(['success' => false, 'message' => 'Invalid size selected!']);
-        exit;
-    } elseif ($quantity < 1 || $quantity > $selected_size_data['quantity']) {
-        echo json_encode(['success' => false, 'message' => 'Invalid quantity selected!']);
-        exit;
-    } else {
-        // Calculate price with discount
-        $unit_price = $selected_size_data['price'] - ($selected_size_data['price'] * $selected_size_data['discount'] / 100);
-        $total_price = $unit_price * $quantity;
-        
-        // Check if item already exists in cart
-        $check_cart_sql = "SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND size_id = ?";
-        $stmt = $conn->prepare($check_cart_sql);
-        $stmt->bind_param("iii", $user_id, $product_id, $selected_size_id);
-        $stmt->execute();
-        $cart_result = $stmt->get_result();
-        
-        if ($cart_result->num_rows > 0) {
-            // Update existing cart item
-            $cart_item = $cart_result->fetch_assoc();
-            $new_quantity = $cart_item['quantity'] + $quantity;
-            
-            // Check if new quantity exceeds stock
-            if ($new_quantity > $selected_size_data['quantity']) {
-                echo json_encode(['success' => false, 'message' => 'Not enough stock available!']);
-                exit;
-            }
-            
-            $new_total = $unit_price * $new_quantity;
-            $update_sql = "UPDATE cart SET quantity = ?, total_price = ? WHERE id = ?";
-            $stmt = $conn->prepare($update_sql);
-            $stmt->bind_param("idi", $new_quantity, $new_total, $cart_item['id']);
-            $stmt->execute();
-        } else {
-            // Insert new cart item
-            $insert_cart_sql = "INSERT INTO cart (user_id, product_id, size_id, size, quantity, price, total_price) 
-                               VALUES (?, ?, ?, ?, ?, ?, ?)";
-            $stmt = $conn->prepare($insert_cart_sql);
-            $stmt->bind_param("iiisidd", $user_id, $product_id, $selected_size_id, $selected_size_data['size'], $quantity, $unit_price, $total_price);
-            $stmt->execute();
-        }
-        
-        // Get updated cart data
-        $cart_count_sql = "SELECT SUM(quantity) as total FROM cart WHERE user_id = ?";
-        $stmt = $conn->prepare($cart_count_sql);
-        $stmt->bind_param("i", $user_id);
-        $stmt->execute();
-        $cart_count_result = $stmt->get_result();
-        $cart_count_row = $cart_count_result->fetch_assoc();
-        $cart_count = $cart_count_row['total'] ?? 0;
-        
-        $cart_total_sql = "SELECT SUM(total_price) as total FROM cart WHERE user_id = ?";
-        $stmt = $conn->prepare($cart_total_sql);
-        $stmt->bind_param("i", $user_id);
-        $stmt->execute();
-        $cart_total_result = $stmt->get_result();
-        $cart_total_row = $cart_total_result->fetch_assoc();
-        $cart_total = $cart_total_row['total'] ?? 0;
-        
-        // Get cart items for display
-        $cart_items_sql = "SELECT 
-                            c.id, 
-                            c.product_id, 
-                            c.size_id,
-                            c.size,
-                            c.quantity, 
-                            c.price, 
-                            c.total_price,
-                            p.product_name,
-                            (SELECT photo FROM photos WHERE product_id = c.product_id AND size_id = c.size_id LIMIT 1) as product_photo
-                           FROM cart c 
-                           INNER JOIN products p ON c.product_id = p.id 
-                           WHERE c.user_id = ? 
-                           ORDER BY c.id DESC";
-        
-        $stmt = $conn->prepare($cart_items_sql);
-        $stmt->bind_param("i", $user_id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $cart_items_array = [];
-        while ($row = $result->fetch_assoc()) {
-            $cart_items_array[] = $row;
-        }
-        
-        echo json_encode([
-            'success' => true, 
-            'message' => 'Product added to cart successfully!',
-            'cart_count' => $cart_count,
-            'cart_total' => $cart_total,
-            'cart_items' => $cart_items_array
-        ]);
-        exit;
-    }
 }
 // Handle Place Order submission
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
@@ -392,37 +299,22 @@ if ($product['gender'] == 0) {
             margin: 40px auto;
             padding: 0 30px;
         }
-
-        .back-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            padding: 14px 28px;
-            background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%);
-            color: white;
-            text-decoration: none;
-            border-radius: 50px;
-            font-weight: 700;
-            transition: all 0.3s;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 15px rgba(52, 73, 94, 0.3);
-        }
-
-        .back-btn:hover {
-            transform: translateX(-5px);
-            box-shadow: 0 6px 25px rgba(52, 73, 94, 0.4);
-        }
-
-        .alert {
-            padding: 18px 24px;
-            border-radius: 12px;
-            margin-bottom: 25px;
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            font-weight: 600;
-            animation: slideInDown 0.5s ease;
-        }
+.alert {
+    position: fixed;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 18px 24px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-weight: 600;
+    animation: slideInDown 0.5s ease;
+    z-index: 10000; /* Higher than navbar */
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transition: opacity 0.3s, transform 0.3s;
+}
 
         .alert-success {
             background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
@@ -984,24 +876,22 @@ if ($product['gender'] == 0) {
     </style>
 </head>
 <body>
+     <?php include 'Components/CustomerNavBar.php'; ?>
     <div class="order-container">
-        <a href="Products.php" class="back-btn">
-            <i class="fas fa-arrow-left"></i> Back to Products
-        </a>
 
-        <?php if (isset($success)): ?>
-            <div class="alert alert-success">
-                <i class="fas fa-check-circle"></i>
-                <span><?php echo $success; ?></span>
-            </div>
-        <?php endif; ?>
+<?php if (isset($success) && !isset($_POST['add_to_cart'])): ?>
+    <div class="alert alert-success">
+        <i class="fas fa-check-circle"></i>
+        <span><?php echo $success; ?></span>
+    </div>
+<?php endif; ?>
 
-        <?php if (isset($error)): ?>
-            <div class="alert alert-error">
-                <i class="fas fa-exclamation-circle"></i>
-                <span><?php echo $error; ?></span>
-            </div>
-        <?php endif; ?>
+<?php if (isset($error) && !isset($_POST['add_to_cart'])): ?>
+    <div class="alert alert-error">
+        <i class="fas fa-exclamation-circle"></i>
+        <span><?php echo $error; ?></span>
+    </div>
+<?php endif; ?>
 
         <div class="order-content">
             <!-- Left Side - Product Images -->
@@ -1380,13 +1270,19 @@ if ($product['gender'] == 0) {
             }
         });
 
-        // Add to Cart Handler
+        let isAddingToCart = false; // Add this flag at the top
+
 document.getElementById('addToCartBtn').addEventListener('click', function() {
+    if (isAddingToCart) {
+        return; // Prevent double-clicks
+    }
+    
     if (!selectedSizeData) {
         alert('Please select a size before adding to cart.');
         return;
     }
     
+    isAddingToCart = true; // Set flag
     const quantity = parseInt(document.getElementById('quantity').value);
     const formData = new FormData();
     formData.append('add_to_cart', '1');
@@ -1420,11 +1316,13 @@ document.getElementById('addToCartBtn').addEventListener('click', function() {
             setTimeout(() => {
                 this.disabled = false;
                 this.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
+                isAddingToCart = false; // Reset flag
             }, 1000);
         } else {
             showAlert(data.message, 'error');
             this.disabled = false;
             this.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
+            isAddingToCart = false; // Reset flag
         }
     })
     .catch(error => {
@@ -1432,14 +1330,14 @@ document.getElementById('addToCartBtn').addEventListener('click', function() {
         showAlert('Failed to add to cart. Please try again.', 'error');
         this.disabled = false;
         this.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
+        isAddingToCart = false; // Reset flag
     });
 });
 
 function showAlert(message, type) {
-    const existingAlert = document.querySelector('.alert');
-    if (existingAlert) {
-        existingAlert.remove();
-    }
+    // Remove any existing alerts first
+    const existingAlerts = document.querySelectorAll('.alert');
+    existingAlerts.forEach(alert => alert.remove());
     
     const alert = document.createElement('div');
     alert.className = `alert alert-${type}`;
@@ -1448,10 +1346,13 @@ function showAlert(message, type) {
         <span>${message}</span>
     `;
     
-    document.querySelector('.order-container').insertBefore(alert, document.querySelector('.order-container').firstChild);
+
+    document.body.insertBefore(alert, document.body.firstChild);
     
+
     setTimeout(() => {
-        alert.style.animation = 'slideUp 0.3s ease';
+        alert.style.opacity = '0';
+        alert.style.transform = 'translate(-50%, -20px)';
         setTimeout(() => alert.remove(), 300);
     }, 3000);
 }

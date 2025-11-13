@@ -1449,7 +1449,6 @@ if (isset($_SESSION['user_id'])) {
 
             console.log('All event listeners initialized!');
         });
-
 window.updateCartDisplay = function(cartData) {
     console.log('Updating cart display:', cartData);
     
@@ -1532,20 +1531,40 @@ window.updateCartDisplay = function(cartData) {
         }
     }
     
-    // Update footer
-    const cartFooter = document.getElementById('cartDropdownFooter');
-    const cartTotalAmount = document.getElementById('cartTotalAmount');
+    // Update or create footer
+    let cartFooter = document.getElementById('cartDropdownFooter');
+    const cartDropdown = document.getElementById('cartDropdown');
     
     if (cartData.cart_count > 0) {
-        if (cartTotalAmount) {
-            cartTotalAmount.textContent = 'Rs. ' + parseFloat(cartData.cart_total).toFixed(2);
+        // Create footer if it doesn't exist
+        if (!cartFooter) {
+            cartFooter = document.createElement('div');
+            cartFooter.className = 'cart-dropdown-footer';
+            cartFooter.id = 'cartDropdownFooter';
+            if (cartDropdown) {
+                cartDropdown.appendChild(cartFooter);
+            }
         }
         
-        if (cartFooter) {
-            cartFooter.style.display = 'block';
-        }
+        // Update footer content
+        cartFooter.innerHTML = `
+            <div class="cart-subtotal">
+                <span class="cart-subtotal-label">Total:</span>
+                <span class="cart-subtotal-amount" id="cartTotalAmount">Rs. ${parseFloat(cartData.cart_total).toFixed(2)}</span>
+            </div>
+            <form method="GET" action="/fashionhub/Customer/CartItemCheckout.php">
+                <button type="submit" class="checkout-btn">
+                    <i class="fas fa-credit-card"></i>
+                    Proceed to Checkout
+                </button>
+            </form>
+        `;
+        cartFooter.style.display = 'block';
     } else {
-        if (cartFooter) cartFooter.style.display = 'none';
+        // Remove footer if cart is empty
+        if (cartFooter) {
+            cartFooter.remove();
+        }
     }
 };
 

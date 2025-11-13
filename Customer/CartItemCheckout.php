@@ -33,12 +33,22 @@ $user_result = $stmt->get_result();
 $user_data = $user_result->fetch_assoc();
 $stmt->close();
 
-// Fetch cart items with calculated total_price
-$cart_query = "SELECT c.id, c.product_id, c.quantity, c.price, 
-               (c.price * c.quantity) as total_price,
-               p.product_name, p.product_photo 
+
+// Fetch cart items with size information and photos
+$cart_query = "SELECT 
+                c.id, 
+                c.product_id, 
+                c.size_id,
+                c.size,
+                c.quantity, 
+                c.price, 
+                c.total_price,
+                p.product_name,
+                ps.size as size_label,
+                ps.discount
                FROM cart c 
-               JOIN products p ON c.product_id = p.id 
+               INNER JOIN products p ON c.product_id = p.id 
+               LEFT JOIN product_sizes ps ON c.size_id = ps.id
                WHERE c.user_id = ? 
                ORDER BY c.id DESC";
 $stmt = $conn->prepare($cart_query);
@@ -49,6 +59,32 @@ $cart_result = $stmt->get_result();
 $cart_items = [];
 $total = 0;
 while ($row = $cart_result->fetch_assoc()) {
+    // Fetch photos for this specific size
+    $photos_sql = "SELECT photo FROM photos WHERE product_id = ? AND size_id = ? LIMIT 1";
+    $photo_stmt = $conn->prepare($photos_sql);
+    $photo_stmt->bind_param("ii", $row['product_id'], $row['size_id']);
+    $photo_stmt->execute();
+    $photos_result = $photo_stmt->get_result();
+    
+    if ($photo_row = $photos_result->fetch_assoc()) {
+        $row['product_photo'] = $photo_row['photo'];
+    } else {
+        // Fallback: try to get any photo for this product
+        $fallback_sql = "SELECT photo FROM photos WHERE product_id = ? LIMIT 1";
+        $fallback_stmt = $conn->prepare($fallback_sql);
+        $fallback_stmt->bind_param("i", $row['product_id']);
+        $fallback_stmt->execute();
+        $fallback_result = $fallback_stmt->get_result();
+        
+        if ($fallback_row = $fallback_result->fetch_assoc()) {
+            $row['product_photo'] = $fallback_row['photo'];
+        } else {
+            $row['product_photo'] = null; // No photo available
+        }
+        $fallback_stmt->close();
+    }
+    $photo_stmt->close();
+    
     $cart_items[] = $row;
     $total += $row['total_price'];
 }
@@ -73,81 +109,90 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         $conn->begin_transaction();
         
         try {
-            // First, validate stock availability for all items
-            foreach ($cart_items as $item) {
-                $stock_check_sql = "SELECT stock_quantity, product_name FROM products WHERE id = ?";
-                $stmt = $conn->prepare($stock_check_sql);
-                $stmt->bind_param("i", $item['product_id']);
-                $stmt->execute();
-                $stock_result = $stmt->get_result();
-                $product = $stock_result->fetch_assoc();
-                $stmt->close();
-                
-                if (!$product) {
-                    throw new Exception("Product not found: " . htmlspecialchars($item['product_name']));
-                }
+          // First, validate stock availability for all items (size-specific)
+foreach ($cart_items as $item) {
+    $stock_check_sql = "SELECT ps.quantity as stock_quantity, p.product_name, ps.size 
+                        FROM product_sizes ps
+                        INNER JOIN products p ON ps.product_id = p.id
+                        WHERE ps.id = ? AND ps.product_id = ?";
+    $stmt = $conn->prepare($stock_check_sql);
+    $stmt->bind_param("ii", $item['size_id'], $item['product_id']);
+    $stmt->execute();
+    $stock_result = $stmt->get_result();
+    $product = $stock_result->fetch_assoc();
+    $stmt->close();
+    
+    if (!$product) {
+        throw new Exception("Product or size not found: " . htmlspecialchars($item['product_name']) . " (Size: " . htmlspecialchars($item['size']) . ")");
+    }
                 
                 if ($product['stock_quantity'] < $item['quantity']) {
-                    throw new Exception("Insufficient stock for " . htmlspecialchars($product['product_name']) . 
-                                      ". Available: " . $product['stock_quantity'] . 
-                                      ", Requested: " . $item['quantity']);
-                }
-                
-                if ($product['stock_quantity'] - $item['quantity'] < 0) {
-                    throw new Exception("Cannot process order. Stock would go below 0 for " . 
-                                      htmlspecialchars($product['product_name']));
-                }
-            }
+        throw new Exception("Insufficient stock for " . htmlspecialchars($product['product_name']) . 
+                          " (Size: " . htmlspecialchars($product['size']) . 
+                          "). Available: " . $product['stock_quantity'] . 
+                          ", Requested: " . $item['quantity']);
+    }
+    
+    if ($product['stock_quantity'] - $item['quantity'] < 0) {
+        throw new Exception("Cannot process order. Stock would go below 0 for " . 
+                          htmlspecialchars($product['product_name']) . 
+                          " (Size: " . htmlspecialchars($product['size']) . ")");
+    }
+}
             
-            // If all stock validations pass, proceed with orders
-            foreach ($cart_items as $item) {
-                // Calculate total_price for this order
-                $item_total = $item['price'] * $item['quantity'];
-                
-                $order_sql = "INSERT INTO orders (user_id, product_id, quantity, price, total_price, delivery_address, phone, status) 
-                              VALUES (?, ?, ?, ?, ?, ?, ?, 0)";
-                $stmt = $conn->prepare($order_sql);
-                
-                if (!$stmt) {
-                    throw new Exception("Order prepare failed: " . $conn->error);
-                }
-                
-                $stmt->bind_param("iiiddss", 
-                    $user_id, 
-                    $item['product_id'], 
-                    $item['quantity'], 
-                    $item['price'], 
-                    $item_total,
-                    $delivery_address, 
-                    $phone
-                );
+ // If all stock validations pass, proceed with orders
+foreach ($cart_items as $item) {
+    // Use the total_price from cart (already calculated)
+    $item_total = $item['total_price'];
+    
+    $order_sql = "INSERT INTO orders (user_id, product_id, size, quantity, price, total_price, delivery_address, phone, status) 
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)";
+    $stmt = $conn->prepare($order_sql);
+    
+    if (!$stmt) {
+        throw new Exception("Order prepare failed: " . $conn->error);
+    }
+    
+    $stmt->bind_param("iisiddss", 
+        $user_id, 
+        $item['product_id'],
+        $item['size'], 
+        $item['quantity'], 
+        $item['price'], 
+        $item_total,
+        $delivery_address, 
+        $phone
+    );
                 
                 if (!$stmt->execute()) {
                     throw new Exception("Order insert failed: " . $stmt->error);
                 }
                 $stmt->close();
                 
-                // Update product stock
-                $update_stock_sql = "UPDATE products 
-                                    SET stock_quantity = stock_quantity - ? 
-                                    WHERE id = ? 
-                                    AND stock_quantity >= ?";
-                $stmt = $conn->prepare($update_stock_sql);
                 
-                if (!$stmt) {
-                    throw new Exception("Stock update prepare failed: " . $conn->error);
-                }
-                
-                $stmt->bind_param("iii", $item['quantity'], $item['product_id'], $item['quantity']);
-                
-                if (!$stmt->execute()) {
-                    throw new Exception("Stock update failed: " . $stmt->error);
-                }
-                
-                if ($stmt->affected_rows === 0) {
-                    throw new Exception("Stock update failed - insufficient stock for " . 
-                                      htmlspecialchars($item['product_name']));
-                }
+// Update product size stock
+    $update_stock_sql = "UPDATE product_sizes 
+                        SET quantity = quantity - ? 
+                        WHERE id = ? 
+                        AND product_id = ?
+                        AND quantity >= ?";
+    $stmt = $conn->prepare($update_stock_sql);
+    
+    if (!$stmt) {
+        throw new Exception("Stock update prepare failed: " . $conn->error);
+    }
+    
+    $stmt->bind_param("iiii", $item['quantity'], $item['size_id'], $item['product_id'], $item['quantity']);
+    
+    if (!$stmt->execute()) {
+        throw new Exception("Stock update failed: " . $stmt->error);
+    }
+    
+    if ($stmt->affected_rows === 0) {
+        throw new Exception("Stock update failed - insufficient stock for " . 
+                          htmlspecialchars($item['product_name']) . 
+                          " (Size: " . htmlspecialchars($item['size']) . ")");
+    }
                 
                 $stmt->close();
             }
@@ -173,7 +218,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             $success = "Orders placed successfully! Redirecting...";
             
             // Redirect to orders page after 2 seconds
-            header("refresh:2;url=/fashionhub/Customer/CustomerDashboard.php");
+            header("refresh:2;url=/fashionhub/Customer/CustomerOrders.php.php");
             
         } catch (Exception $e) {
             // Rollback transaction on error
@@ -205,28 +250,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             padding-top: 70px;
             min-height: 100vh;
             color: #2c3e50;
-        }
-
-        .navbar {
-            background: #fff;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            z-index: 1000;
-            height: 70px;
-        }
-
-        .navbar-content {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            width: 100%;
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 0 40px;
-            height: 100%;
         }
 
         .logo {
@@ -267,24 +290,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             max-width: 1300px;
             margin: 40px auto;
             padding: 0 20px;
-        }
-
-        .checkout-header {
-            text-align: center;
-            margin-bottom: 45px;
-        }
-
-        .checkout-header h1 {
-            font-size: 48px;
-            color: #2c3e50;
-            margin-bottom: 12px;
-            font-weight: 800;
-            letter-spacing: -0.5px;
-        }
-
-        .checkout-header p {
-            font-size: 17px;
-            color: #7f8c8d;
         }
 
         .alert {
@@ -534,36 +539,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                 position: static;
                 order: -1;
             }
-
-            .navbar-content {
-                padding: 0 20px;
-            }
-
-            .checkout-header h1 {
-                font-size: 36px;
-            }
         }
     </style>
 </head>
 <body>
-    <nav class="navbar">
-        <div class="navbar-content">
-            <a href="/fashionhub/Customer/CustomerDashboard.php" class="logo">
-                <i class="fas fa-shopping-bag"></i>
-                <span>FashionHub</span>
-            </a>
-            <a href="/fashionhub/Customer/CustomerDashboard.php" class="back-btn">
-                <i class="fas fa-arrow-left"></i>
-                Continue Shopping
-            </a>
-        </div>
-    </nav>
-
+    <?php include 'Components/CustomerNavBar.php'; ?>
     <div class="checkout-container">
-        <div class="checkout-header">
-            <h1>🛒 Checkout</h1>
-            <p>Review your order and complete your purchase</p>
-        </div>
 
         <?php if (isset($success)): ?>
             <div class="alert alert-success">
@@ -592,19 +573,37 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                     </div>
                     
                     <?php foreach ($cart_items as $item): ?>
-                        <div class="cart-item">
-                            <img src="data:image/jpeg;base64,<?php echo $item['product_photo']; ?>" 
-                                 alt="<?php echo htmlspecialchars($item['product_name']); ?>" 
-                                 class="item-image">
-                            <div class="item-details">
-                                <div class="item-name"><?php echo htmlspecialchars($item['product_name']); ?></div>
-                                <div class="item-meta">
-                                    <span class="item-quantity">Qty: <?php echo $item['quantity']; ?> × Rs. <?php echo number_format($item['price'], 2); ?></span>
-                                    <span class="item-price">Rs. <?php echo number_format($item['total_price'], 2); ?></span>
-                                </div>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
+    <div class="cart-item">
+        <?php if (!empty($item['product_photo'])): ?>
+            <img src="data:image/jpeg;base64,<?php echo $item['product_photo']; ?>" 
+                 alt="<?php echo htmlspecialchars($item['product_name']); ?>" 
+                 class="item-image">
+        <?php else: ?>
+            <div class="item-image" style="display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);">
+                <i class="fas fa-tshirt" style="font-size: 40px; color: #cbd5e0;"></i>
+            </div>
+        <?php endif; ?>
+        <div class="item-details">
+            <div class="item-name">
+                <?php echo htmlspecialchars($item['product_name']); ?>
+                <?php if (!empty($item['size'])): ?>
+                    <span style="display: inline-block; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 800; margin-left: 8px;">
+                        <?php echo htmlspecialchars($item['size']); ?>
+                    </span>
+                <?php endif; ?>
+                <?php if (!empty($item['discount']) && $item['discount'] > 0): ?>
+                    <span style="display: inline-block; background: linear-gradient(135deg, #27ae60 0%, #229954 100%); color: white; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; margin-left: 5px;">
+                        <?php echo $item['discount']; ?>% OFF
+                    </span>
+                <?php endif; ?>
+            </div>
+            <div class="item-meta">
+                <span class="item-quantity">Qty: <?php echo $item['quantity']; ?> × Rs. <?php echo number_format($item['price'], 2); ?></span>
+                <span class="item-price">Rs. <?php echo number_format($item['total_price'], 2); ?></span>
+            </div>
+        </div>
+    </div>
+<?php endforeach; ?>
                 </div>
 
                 <div class="checkout-section" style="margin-top: 30px;">
