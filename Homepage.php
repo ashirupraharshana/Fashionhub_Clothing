@@ -845,6 +845,188 @@ $hero_image = $hero_image_result->fetch_assoc();
                 grid-template-columns: 1fr;
             }
         }
+
+        /* Members Only Modal Styles */
+        .login-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            z-index: 3000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .login-modal.active {
+            display: flex;
+        }
+
+        .login-modal-content {
+            background: white;
+            border-radius: 24px;
+            max-width: 500px;
+            width: 100%;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: slideUp 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+            from { 
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to { 
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .login-modal-header {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            padding: 50px 40px 40px;
+            text-align: center;
+            position: relative;
+            color: white;
+        }
+
+        .close-login-modal {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .close-login-modal:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: rotate(90deg);
+        }
+
+        .login-modal-icon {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 36px;
+            color: white;
+            backdrop-filter: blur(10px);
+        }
+
+        .login-modal-header h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: 32px;
+            font-weight: 900;
+            margin-bottom: 10px;
+            color: white;
+        }
+
+        .login-modal-header p {
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.95);
+            font-weight: 500;
+        }
+
+        .login-modal-body {
+            padding: 40px;
+        }
+
+        .login-modal-body p {
+            font-size: 15px;
+            color: var(--text-light);
+            line-height: 1.8;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .login-modal-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .btn-login-modal,
+        .btn-signup-modal {
+            padding: 16px 30px;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 700;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-login-modal {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            color: white;
+            box-shadow: 0 8px 20px rgba(231, 76, 60, 0.3);
+        }
+
+        .btn-login-modal:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 30px rgba(231, 76, 60, 0.4);
+        }
+
+        .btn-signup-modal {
+            background: white;
+            color: var(--accent);
+            border: 2px solid var(--accent);
+        }
+
+        .btn-signup-modal:hover {
+            background: rgba(231, 76, 60, 0.05);
+            transform: translateY(-2px);
+        }
+
+        @media (max-width: 640px) {
+            .login-modal-header {
+                padding: 40px 30px 30px;
+            }
+
+            .login-modal-header h2 {
+                font-size: 26px;
+            }
+
+            .login-modal-body {
+                padding: 30px;
+            }
+
+            .login-modal-icon {
+                width: 70px;
+                height: 70px;
+                font-size: 32px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1054,11 +1236,11 @@ $hero_image = $hero_image_result->fetch_assoc();
                         </div>
                     <?php endif; ?>
                 </div>
-                <?php if ($total_stock > 0): ?>
-                    <button class="product-btn" onclick="event.stopPropagation();">
-                        <i class="fas fa-shopping-cart"></i> View
-                    </button>
-                <?php endif; ?>
+<?php if ($total_stock > 0): ?>
+    <button class="product-btn" onclick="event.stopPropagation(); addToCart(<?php echo $product['id']; ?>);">
+        <i class="fas fa-shopping-cart"></i> Add to Cart
+    </button>
+<?php endif; ?>
             </div>
         </div>
     </div>
@@ -1142,5 +1324,114 @@ $hero_image = $hero_image_result->fetch_assoc();
     </section>
 
     <?php include 'Components/Footer.php'; ?>
+
+    <!-- Members Only Modal -->
+    <div class="login-modal" id="membersOnlyModal">
+        <div class="login-modal-content">
+            <div class="login-modal-header">
+                <button class="close-login-modal" onclick="closeMembersOnlyModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+                <div class="login-modal-icon">
+                    <i class="fas fa-crown"></i>
+                </div>
+                <h2>Members Only</h2>
+                <p>Exclusive access for registered members</p>
+            </div>
+            <div class="login-modal-body">
+                <p>To add items to your cart and enjoy exclusive member benefits, please log in to your account or create a new one.</p>
+                <div class="login-modal-actions">
+                    <button class="btn-login-modal" onclick="openLoginFromMembersModal()">
+                        <i class="fas fa-sign-in-alt"></i>
+                        Login
+                    </button>
+                    <button class="btn-signup-modal" onclick="openSignupFromMembersModal()">
+                        <i class="fas fa-user-plus"></i>
+                        Create Account
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Add to Cart - Opens Members Only Modal
+        function addToCart(productId) {
+            openMembersOnlyModal();
+        }
+
+        // Members Only Modal Functions
+        function openMembersOnlyModal() {
+            const modal = document.getElementById('membersOnlyModal');
+            if (modal) {
+                modal.classList.add('active');
+                document.body.style.overflow = 'hidden';
+            }
+        }
+
+        function closeMembersOnlyModal() {
+            const modal = document.getElementById('membersOnlyModal');
+            if (modal) {
+                modal.classList.remove('active');
+                document.body.style.overflow = '';
+            }
+        }
+
+        function openLoginFromMembersModal() {
+            closeMembersOnlyModal();
+            setTimeout(function() {
+                const navLoginBtn = document.getElementById('loginBtn');
+                const loginModal = document.getElementById('loginModal');
+                
+                if (navLoginBtn) {
+                    navLoginBtn.click();
+                } else if (loginModal) {
+                    loginModal.classList.add('active');
+                    document.body.style.overflow = 'hidden';
+                } else {
+                    window.location.href = '/fashionhub/Homepage.php?action=login';
+                }
+            }, 300);
+        }
+
+        function openSignupFromMembersModal() {
+            closeMembersOnlyModal();
+            setTimeout(function() {
+                const navSignupBtn = document.getElementById('signupBtn');
+                const signupModal = document.getElementById('signupModal');
+                
+                if (navSignupBtn) {
+                    navSignupBtn.click();
+                } else if (signupModal) {
+                    signupModal.classList.add('active');
+                    document.body.style.overflow = 'hidden';
+                } else {
+                    window.location.href = '/fashionhub/Homepage.php?action=signup';
+                }
+            }, 300);
+        }
+
+        // Close modals on escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                const membersModal = document.getElementById('membersOnlyModal');
+                if (membersModal && membersModal.classList.contains('active')) {
+                    closeMembersOnlyModal();
+                }
+            }
+        });
+
+        // Close members only modal when clicking outside
+        document.addEventListener('DOMContentLoaded', function() {
+            const membersModal = document.getElementById('membersOnlyModal');
+            if (membersModal) {
+                membersModal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        closeMembersOnlyModal();
+                    }
+                });
+            }
+        });
+    </script>
 </body>
 </html>

@@ -657,22 +657,30 @@ $status_labels = [
             font-weight: 700;
         }
 
-        .close-modal {
-            position: absolute;
-            top: 25px;
-            right: 25px;
-            background: transparent;
-            border: none;
-            font-size: 28px;
-            color: #999;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
+.close-modal {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: #f0f0f0;
+    border: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    z-index: 10;
+}
 
-        .close-modal:hover {
-            color: #333;
-            transform: rotate(90deg);
-        }
+.close-modal:hover {
+    background: #e74c3c;
+    color: white;
+    transform: rotate(90deg) scale(1.1);
+}
 
         .order-details-grid {
             display: grid;

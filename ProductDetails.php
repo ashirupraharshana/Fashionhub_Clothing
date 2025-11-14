@@ -2,42 +2,89 @@
 include 'db_connect.php';
 include 'Components/CustomerNavBar.php';
 
-// Get product ID from URL
-$product_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
-
-if ($product_id <= 0) {
-    header("Location: /fashionhub/Collections.php");
+// Check if product_id is provided
+if (!isset($_GET['id']) || empty($_GET['id'])) {
+    header("Location: Collections.php");
     exit;
 }
 
-// Fetch product details
-$product_query = "SELECT p.*, c.category_name 
-                  FROM products p 
-                  LEFT JOIN categories c ON p.category_id = c.id 
-                  WHERE p.id = ?";
-$stmt = $conn->prepare($product_query);
+$product_id = intval($_GET['id']);
+
+// Fetch product details with category
+$product_sql = "SELECT p.*, c.category_name, s.subcategory_name 
+                FROM products p 
+                LEFT JOIN categories c ON p.category_id = c.id 
+                LEFT JOIN subcategories s ON p.subcategory_id = s.id 
+                WHERE p.id = ?";
+$stmt = $conn->prepare($product_sql);
 $stmt->bind_param("i", $product_id);
 $stmt->execute();
-$result = $stmt->get_result();
+$product_result = $stmt->get_result();
 
-if ($result->num_rows === 0) {
-    header("Location: /fashionhub/Collections.php");
+if ($product_result->num_rows === 0) {
+    header("Location: Collections.php");
     exit;
 }
 
-$product = $result->fetch_assoc();
-$final_price = $product['price'] - ($product['price'] * $product['discount'] / 100);
+$product = $product_result->fetch_assoc();
 
-// Fetch related products from same category
-$related_query = "SELECT p.*, c.category_name 
-                  FROM products p 
-                  LEFT JOIN categories c ON p.category_id = c.id 
-                  WHERE p.category_id = ? AND p.id != ? AND p.stock_quantity > 0 
-                  LIMIT 4";
-$stmt_related = $conn->prepare($related_query);
-$stmt_related->bind_param("ii", $product['category_id'], $product_id);
-$stmt_related->execute();
-$related_result = $stmt_related->get_result();
+// Fetch all sizes with their details and photos
+$sizes_sql = "SELECT ps.* FROM product_sizes ps WHERE ps.product_id = ? ORDER BY 
+              CASE 
+                  WHEN ps.size = 'XS' THEN 0
+                  WHEN ps.size = 'S' THEN 1
+                  WHEN ps.size = 'M' THEN 2
+                  WHEN ps.size = 'L' THEN 3
+                  WHEN ps.size = 'XL' THEN 4
+                  WHEN ps.size = 'XXL' THEN 5
+                  WHEN ps.size = 'XXXL' THEN 6
+                  ELSE 7
+              END";
+$stmt = $conn->prepare($sizes_sql);
+$stmt->bind_param("i", $product_id);
+$stmt->execute();
+$sizes_result = $stmt->get_result();
+$sizes = [];
+while ($size_row = $sizes_result->fetch_assoc()) {
+    // Fetch photos for each size
+    $photos_sql = "SELECT photo FROM photos WHERE product_id = ? AND size_id = ?";
+    $photo_stmt = $conn->prepare($photos_sql);
+    $photo_stmt->bind_param("ii", $product_id, $size_row['id']);
+    $photo_stmt->execute();
+    $photos_result = $photo_stmt->get_result();
+    
+    $size_row['photos'] = [];
+    while ($photo = $photos_result->fetch_assoc()) {
+        $size_row['photos'][] = $photo['photo'];
+    }
+    
+    $sizes[] = $size_row;
+    $photo_stmt->close();
+}
+
+// Determine gender label
+$genderLabel = '';
+if ($product['gender'] == 0) {
+    $genderLabel = 'Unisex';
+} elseif ($product['gender'] == 1) {
+    $genderLabel = 'Men';
+} elseif ($product['gender'] == 2) {
+    $genderLabel = 'Women';
+}
+
+// Get related products (same category, excluding current product)
+$related_sql = "SELECT p.id, p.product_name, 
+                MIN(ps.price) as min_price,
+                MAX(ps.discount) as max_discount
+                FROM products p 
+                INNER JOIN product_sizes ps ON p.id = ps.product_id
+                WHERE p.category_id = ? AND p.id != ? AND ps.quantity > 0
+                GROUP BY p.id, p.product_name
+                LIMIT 4";
+$stmt = $conn->prepare($related_sql);
+$stmt->bind_param("ii", $product['category_id'], $product_id);
+$stmt->execute();
+$related_result = $stmt->get_result();
 ?>
 
 <!DOCTYPE html>
@@ -70,23 +117,23 @@ $related_result = $stmt_related->get_result();
             color: var(--text);
             background: var(--white);
             padding-top: 70px;
+            min-height: 100vh;
+        }
+
+        .product-container {
+            max-width: 1400px;
+            margin: 40px auto;
+            padding: 0 30px;
         }
 
         /* Breadcrumb */
-        .breadcrumb-section {
-            background: var(--bg-light);
-            padding: 20px 5%;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-        }
-
         .breadcrumb {
             display: flex;
             align-items: center;
             gap: 10px;
-            max-width: 1400px;
-            margin: 0 auto;
             font-size: 14px;
             color: var(--text-light);
+            margin-bottom: 30px;
         }
 
         .breadcrumb a {
@@ -100,105 +147,124 @@ $related_result = $stmt_related->get_result();
             color: var(--accent-dark);
         }
 
-        /* Main Container */
-        .product-container {
-            max-width: 1400px;
-            margin: 60px auto;
-            padding: 0 5%;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 80px;
+        .breadcrumb i {
+            font-size: 10px;
         }
 
-        /* Product Gallery */
-        .product-gallery {
+        .product-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 60px;
+            margin-bottom: 80px;
+        }
+
+        /* Left Side - Product Images */
+        .product-images-section {
             position: sticky;
-            top: 100px;
+            top: 90px;
             height: fit-content;
         }
 
-        .main-image-container {
+        .image-gallery {
             position: relative;
             width: 100%;
-            padding-bottom: 120%;
-            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-            border-radius: 24px;
+            aspect-ratio: 1;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
+            border-radius: 20px;
             overflow: hidden;
             margin-bottom: 20px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+            border: 2px solid rgba(231, 76, 60, 0.1);
         }
 
-        .main-image {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .main-image img {
+        .gallery-image {
+            display: none;
             width: 100%;
             height: 100%;
             object-fit: cover;
         }
 
-        .main-image i {
-            font-size: 120px;
-            color: rgba(0, 0, 0, 0.08);
+        .gallery-image.active {
+            display: block;
         }
 
-        .product-badges {
-            position: absolute;
-            top: 20px;
-            left: 20px;
+        .gallery-placeholder {
             display: flex;
-            gap: 10px;
-            z-index: 2;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
         }
 
-        .badge {
-            padding: 8px 16px;
-            border-radius: 50px;
-            font-size: 12px;
+        .gallery-placeholder i {
+            font-size: 100px;
+            color: #cbd5e0;
+        }
+
+        .gallery-nav {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 15px;
+            pointer-events: none;
+        }
+
+        .gallery-nav-btn {
+            pointer-events: all;
+            background: rgba(255, 255, 255, 0.95);
+            border: none;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .gallery-nav-btn:hover:not(:disabled) {
+            background: var(--accent);
+            color: white;
+            transform: scale(1.1);
+        }
+
+        .gallery-nav-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .gallery-counter {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 18px;
+            border-radius: 25px;
+            font-size: 14px;
             font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
             backdrop-filter: blur(10px);
         }
 
-        .badge-discount {
-            background: rgba(231, 76, 60, 0.95);
-            color: white;
+        /* Right Side - Product Info */
+        .product-info-section {
+            padding: 20px 0;
         }
 
-        .badge-stock {
-            background: rgba(255, 193, 7, 0.95);
-            color: #333;
-        }
-
-        .badge-new {
-            background: rgba(46, 204, 113, 0.95);
-            color: white;
-        }
-
-        /* Product Info */
-        .product-info {
-            padding-top: 20px;
-        }
-
-        .product-category {
+        .product-category-badge {
             display: inline-block;
-            padding: 8px 20px;
-            background: rgba(231, 76, 60, 0.1);
-            color: var(--accent);
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            color: white;
+            padding: 8px 18px;
             border-radius: 50px;
-            font-size: 13px;
-            font-weight: 700;
+            font-size: 12px;
+            font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 1.5px;
             margin-bottom: 20px;
         }
 
@@ -207,233 +273,285 @@ $related_result = $stmt_related->get_result();
             font-size: 48px;
             font-weight: 900;
             color: var(--primary);
-            line-height: 1.2;
             margin-bottom: 20px;
-            letter-spacing: -1px;
+            line-height: 1.2;
         }
 
-        .product-rating {
+        .product-attributes {
             display: flex;
-            align-items: center;
-            gap: 15px;
-            margin-bottom: 30px;
-        }
-
-        .stars {
-            display: flex;
-            gap: 5px;
-            color: #ffd700;
-            font-size: 18px;
-        }
-
-        .rating-text {
-            font-size: 14px;
-            color: var(--text-light);
-            font-weight: 600;
-        }
-
-        .price-section {
-            background: linear-gradient(135deg, #fef5f5 0%, #ffffff 100%);
-            padding: 30px;
-            border-radius: 20px;
-            margin-bottom: 40px;
-            border: 2px solid rgba(231, 76, 60, 0.1);
-        }
-
-        .current-price {
-            font-size: 42px;
-            font-weight: 800;
-            color: var(--accent);
-            margin-bottom: 10px;
-        }
-
-        .price-details {
-            display: flex;
-            align-items: center;
             gap: 15px;
             flex-wrap: wrap;
-        }
-
-        .original-price {
-            font-size: 24px;
-            color: var(--text-light);
-            text-decoration: line-through;
-        }
-
-        .discount-badge {
-            padding: 6px 14px;
-            background: var(--accent);
-            color: white;
-            border-radius: 50px;
-            font-size: 13px;
-            font-weight: 700;
-        }
-
-        .savings-text {
-            font-size: 14px;
-            color: #27ae60;
-            font-weight: 600;
-        }
-
-        /* Product Attributes */
-        .product-attributes {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 40px;
-        }
-
-        .attribute-item {
-            background: white;
-            padding: 20px;
-            border-radius: 16px;
-            border: 2px solid rgba(0, 0, 0, 0.06);
-            text-align: center;
-            transition: all 0.3s ease;
-        }
-
-        .attribute-item:hover {
-            border-color: var(--accent);
-            transform: translateY(-3px);
-            box-shadow: 0 8px 20px rgba(231, 76, 60, 0.15);
-        }
-
-        .attribute-item i {
-            font-size: 24px;
-            color: var(--accent);
-            margin-bottom: 10px;
-        }
-
-        .attribute-label {
-            font-size: 12px;
-            color: var(--text-light);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            font-weight: 600;
-            margin-bottom: 5px;
-        }
-
-        .attribute-value {
-            font-size: 16px;
-            color: var(--text);
-            font-weight: 700;
-        }
-
-        /* Quantity Selector */
-        .quantity-section {
             margin-bottom: 30px;
+            padding-bottom: 30px;
+            border-bottom: 2px solid #e8e8e8;
         }
 
-        .section-label {
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--text);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 15px;
-        }
-
-        .quantity-selector {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .quantity-controls {
-            display: flex;
-            align-items: center;
-            background: white;
-            border: 2px solid rgba(0, 0, 0, 0.1);
-            border-radius: 12px;
-            overflow: hidden;
-        }
-
-        .quantity-btn {
-            width: 45px;
-            height: 45px;
-            background: transparent;
-            border: none;
-            font-size: 18px;
-            color: var(--text);
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .quantity-btn:hover {
-            background: var(--accent);
-            color: white;
-        }
-
-        .quantity-input {
-            width: 60px;
-            height: 45px;
-            border: none;
-            text-align: center;
-            font-size: 16px;
-            font-weight: 700;
-            color: var(--text);
-            background: transparent;
-        }
-
-        .stock-indicator {
+        .attribute-badge {
             display: flex;
             align-items: center;
             gap: 8px;
+            padding: 10px 18px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
+            border: 2px solid #e8e8e8;
+            border-radius: 50px;
             font-size: 14px;
+            color: var(--text);
+            font-weight: 700;
+        }
+
+        .attribute-badge i {
+            color: var(--accent);
+            font-size: 16px;
+        }
+
+        .product-description {
+            margin-bottom: 40px;
+        }
+
+        .product-description h3 {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--primary);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .product-description h3 i {
+            color: var(--accent);
+        }
+
+        .product-description p {
+            font-size: 15px;
+            color: var(--text-light);
+            line-height: 1.8;
+        }
+
+        /* Size Selection */
+        .sizes-section {
+            margin-bottom: 40px;
+        }
+
+        .sizes-header {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--primary);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .sizes-header i {
+            color: var(--accent);
+        }
+
+        .sizes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .size-card {
+            background: white;
+            border: 3px solid #e8e8e8;
+            border-radius: 16px;
+            padding: 18px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-align: center;
+            position: relative;
+        }
+
+        .size-card:hover:not(.out-of-stock) {
+            border-color: var(--accent);
+            box-shadow: 0 8px 25px rgba(231, 76, 60, 0.2);
+            transform: translateY(-3px);
+        }
+
+        .size-card.selected {
+            border-color: var(--accent);
+            background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
+            box-shadow: 0 8px 25px rgba(231, 76, 60, 0.3);
+        }
+
+        .size-card.out-of-stock {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: #f8f9fa;
+        }
+
+        .size-card.out-of-stock::before {
+            content: 'OUT OF STOCK';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-15deg);
+            font-size: 10px;
+            font-weight: 900;
+            color: rgba(231, 76, 60, 0.4);
+            z-index: 1;
+            letter-spacing: 0.5px;
+        }
+
+        .size-label {
+            font-size: 28px;
+            font-weight: 900;
+            color: var(--primary);
+            margin-bottom: 10px;
+        }
+
+        .size-price {
+            font-size: 18px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 6px;
+        }
+
+        .size-original-price {
+            font-size: 13px;
+            color: #95a5a6;
+            text-decoration: line-through;
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .size-discount {
+            display: inline-block;
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+            color: white;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .size-quantity {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            font-size: 11px;
+            color: var(--text-light);
             font-weight: 600;
         }
 
-        .stock-indicator.in-stock {
-            color: #27ae60;
+        .size-quantity i {
+            color: var(--accent);
         }
 
-        .stock-indicator.low-stock {
-            color: #f39c12;
+        .size-quantity .stock-count {
+            color: var(--primary);
+            font-weight: 800;
         }
 
-        .stock-indicator i {
-            font-size: 12px;
+        .selected-size-info {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            border: 2px solid #28a745;
+            border-radius: 15px;
+            padding: 18px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 700;
+            color: #155724;
+            margin-bottom: 30px;
+        }
+
+        .selected-size-info i {
+            font-size: 20px;
+        }
+
+        /* Price Display */
+        .price-section {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
+            border: 2px solid #e8e8e8;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+
+        .price-label {
+            font-size: 14px;
+            color: var(--text-light);
+            font-weight: 600;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .price-value {
+            font-size: 42px;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+
+        .price-original {
+            font-size: 24px;
+            color: #95a5a6;
+            text-decoration: line-through;
+            font-weight: 600;
+        }
+
+        .savings-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 50px;
+            font-size: 15px;
+            font-weight: 800;
+            margin-top: 15px;
         }
 
         /* Action Buttons */
         .action-buttons {
             display: flex;
             gap: 15px;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
         }
 
-        .btn-primary, .btn-secondary {
+        .btn {
             flex: 1;
-            padding: 18px 30px;
+            padding: 18px;
             border: none;
-            border-radius: 12px;
+            border-radius: 15px;
             font-size: 16px;
-            font-weight: 700;
+            font-weight: 800;
             cursor: pointer;
+            transition: all 0.3s ease;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            gap: 12px;
+            text-decoration: none;
         }
 
         .btn-primary {
             background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
             color: white;
-            box-shadow: 0 8px 20px rgba(231, 76, 60, 0.3);
+            box-shadow: 0 8px 25px rgba(231, 76, 60, 0.4);
         }
 
         .btn-primary:hover {
             transform: translateY(-3px);
-            box-shadow: 0 12px 30px rgba(231, 76, 60, 0.4);
+            box-shadow: 0 12px 35px rgba(231, 76, 60, 0.5);
         }
 
         .btn-secondary {
             background: white;
             color: var(--accent);
-            border: 2px solid var(--accent);
+            border: 3px solid var(--accent);
         }
 
         .btn-secondary:hover {
@@ -441,97 +559,49 @@ $related_result = $stmt_related->get_result();
             transform: translateY(-2px);
         }
 
-        /* Product Details Tabs */
-        .product-tabs {
-            margin-top: 60px;
-            padding-top: 60px;
-            border-top: 2px solid rgba(0, 0, 0, 0.05);
+        .btn:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
-        .tab-buttons {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-            border-bottom: 2px solid rgba(0, 0, 0, 0.05);
-        }
-
-        .tab-btn {
-            padding: 15px 30px;
-            background: transparent;
-            border: none;
-            font-size: 15px;
-            font-weight: 600;
-            color: var(--text-light);
-            cursor: pointer;
-            position: relative;
-            transition: all 0.3s ease;
-        }
-
-        .tab-btn.active {
-            color: var(--accent);
-        }
-
-        .tab-btn.active::after {
-            content: '';
-            position: absolute;
-            bottom: -2px;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: var(--accent);
-        }
-
-        .tab-content {
-            display: none;
-            animation: fadeIn 0.4s ease;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .description-content {
-            font-size: 15px;
-            line-height: 1.8;
-            color: var(--text);
-        }
-
-        .description-content p {
-            margin-bottom: 15px;
-        }
-
-        .features-list {
-            list-style: none;
-            display: grid;
-            gap: 15px;
-        }
-
-        .features-list li {
+        /* Stock Status */
+        .stock-status {
             display: flex;
             align-items: center;
-            gap: 15px;
-            padding: 15px;
-            background: var(--bg-light);
+            gap: 10px;
+            padding: 15px 20px;
             border-radius: 12px;
-            font-size: 15px;
-            font-weight: 500;
+            font-weight: 700;
+            font-size: 14px;
+            margin-bottom: 30px;
         }
 
-        .features-list i {
-            color: var(--accent);
-            font-size: 18px;
+        .stock-status.in-stock {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            color: #155724;
+            border: 2px solid #28a745;
+        }
+
+        .stock-status.low-stock {
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+            color: #856404;
+            border: 2px solid #ffc107;
+        }
+
+        .stock-status.out-of-stock {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            color: #721c24;
+            border: 2px solid #dc3545;
         }
 
         /* Related Products */
-        .related-products {
-            max-width: 1400px;
-            margin: 80px auto;
-            padding: 0 5%;
+        .related-section {
+            padding: 60px 0;
+            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+            border-radius: 30px;
+            margin-top: 60px;
         }
 
         .section-header {
@@ -539,7 +609,7 @@ $related_result = $stmt_related->get_result();
             margin-bottom: 50px;
         }
 
-        .section-title {
+        .section-header h2 {
             font-family: 'Playfair Display', serif;
             font-size: 42px;
             font-weight: 900;
@@ -547,98 +617,65 @@ $related_result = $stmt_related->get_result();
             margin-bottom: 15px;
         }
 
-        .section-subtitle {
+        .section-header p {
             font-size: 16px;
             color: var(--text-light);
         }
 
-        .products-grid {
+        .related-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
             gap: 30px;
+            padding: 0 30px;
         }
 
-        .product-card {
+        .related-card {
             background: white;
             border-radius: 20px;
             overflow: hidden;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            border: 1px solid rgba(0, 0, 0, 0.06);
+            transition: all 0.4s ease;
+            border: 2px solid rgba(0, 0, 0, 0.06);
             cursor: pointer;
         }
 
-        .product-card:hover {
+        .related-card:hover {
             transform: translateY(-10px);
-            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
             border-color: rgba(231, 76, 60, 0.3);
         }
 
-        .product-image-wrapper {
-            position: relative;
+        .related-image {
             width: 100%;
-            padding-bottom: 120%;
-            overflow: hidden;
-            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-        }
-
-        .product-image {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            aspect-ratio: 1;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
             display: flex;
             align-items: center;
             justify-content: center;
         }
 
-        .product-image img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transition: transform 0.6s ease;
-        }
-
-        .product-card:hover .product-image img {
-            transform: scale(1.12);
-        }
-
-        .product-image i {
+        .related-image i {
             font-size: 60px;
-            color: rgba(0, 0, 0, 0.08);
+            color: #cbd5e0;
         }
 
-        .card-info {
+        .related-info {
             padding: 20px;
         }
 
-        .card-category {
-            font-size: 11px;
-            color: var(--accent);
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 8px;
-        }
-
-        .card-name {
+        .related-name {
             font-size: 16px;
             font-weight: 700;
             color: var(--primary);
-            margin-bottom: 12px;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
+            margin-bottom: 10px;
         }
 
-        .card-price {
+        .related-price {
             font-size: 20px;
             font-weight: 800;
             color: var(--accent);
         }
 
-        /* Members Only Modal Styles */
+        /* Members Only Modal */
         .login-modal {
             display: none;
             position: fixed;
@@ -667,6 +704,11 @@ $related_result = $stmt_related->get_result();
             overflow: hidden;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             animation: slideUp 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
 
         @keyframes slideUp {
@@ -796,23 +838,31 @@ $related_result = $stmt_related->get_result();
         }
 
         /* Responsive Design */
-        @media (max-width: 968px) {
-            .product-container {
+        @media (max-width: 1024px) {
+            .product-content {
                 grid-template-columns: 1fr;
                 gap: 40px;
-                margin: 40px auto;
             }
 
-            .product-gallery {
-                position: relative;
-                top: 0;
+            .product-images-section {
+                position: static;
+            }
+
+            .sizes-grid {
+                grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            }
+        }
+
+        @media (max-width: 768px) {
+            .product-container {
+                padding: 0 20px;
             }
 
             .product-title {
                 font-size: 36px;
             }
 
-            .current-price {
+            .price-value {
                 font-size: 32px;
             }
 
@@ -820,267 +870,215 @@ $related_result = $stmt_related->get_result();
                 flex-direction: column;
             }
 
-            .products-grid {
-                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            .related-grid {
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
                 gap: 20px;
+                padding: 0 20px;
             }
         }
 
         @media (max-width: 640px) {
-            .product-title {
-                font-size: 28px;
+            .sizes-grid {
+                grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
             }
 
-            .product-attributes {
-                grid-template-columns: 1fr 1fr;
+            .size-label {
+                font-size: 22px;
             }
 
-            .section-title {
-                font-size: 32px;
-            }
-
-            .login-modal-header {
-                padding: 40px 30px 30px;
-            }
-
-            .login-modal-header h2 {
-                font-size: 26px;
-            }
-
-            .login-modal-body {
-                padding: 30px;
-            }
-
-            .login-modal-icon {
-                width: 70px;
-                height: 70px;
-                font-size: 32px;
+            .size-price {
+                font-size: 15px;
             }
         }
     </style>
 </head>
 <body>
-    <!-- Breadcrumb -->
-    <section class="breadcrumb-section">
+    <div class="product-container">
+        <!-- Breadcrumb -->
         <div class="breadcrumb">
-            <a href="/fashionhub/index.php">Home</a>
+            <a href="Homepage.php">Home</a>
             <i class="fas fa-chevron-right"></i>
-            <a href="/fashionhub/Collections.php">Collections</a>
-            <i class="fas fa-chevron-right"></i>
-            <a href="/fashionhub/Collections.php?category=<?php echo $product['category_id']; ?>">
-                <?php echo htmlspecialchars($product['category_name']); ?>
-            </a>
+            <a href="Collections.php">Collections</a>
             <i class="fas fa-chevron-right"></i>
             <span><?php echo htmlspecialchars($product['product_name']); ?></span>
         </div>
-    </section>
 
-    <!-- Product Details -->
-    <div class="product-container">
-        <!-- Product Gallery -->
-        <div class="product-gallery">
-            <div class="main-image-container">
-                <div class="main-image">
-                    <?php if (!empty($product['product_photo'])): ?>
-                        <img src="data:image/jpeg;base64,<?php echo $product['product_photo']; ?>" 
-                             alt="<?php echo htmlspecialchars($product['product_name']); ?>">
-                    <?php else: ?>
+        <!-- Product Content -->
+        <div class="product-content">
+            <!-- Left Side - Product Images -->
+            <div class="product-images-section">
+                <div class="image-gallery" id="imageGallery">
+                    <div class="gallery-placeholder" id="galleryPlaceholder">
                         <i class="fas fa-tshirt"></i>
-                    <?php endif; ?>
-                </div>
-
-                <div class="product-badges">
-                    <?php if ($product['discount'] > 0): ?>
-                        <span class="badge badge-discount"><?php echo $product['discount']; ?>% OFF</span>
-                    <?php endif; ?>
+                    </div>
                     
-                    <?php if ($product['stock_quantity'] <= 10): ?>
-                        <span class="badge badge-stock">Only <?php echo $product['stock_quantity']; ?> Left</span>
+                    <div class="gallery-nav">
+                        <button class="gallery-nav-btn" id="prevBtn" onclick="navigateGallery(-1)" disabled>
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <button class="gallery-nav-btn" id="nextBtn" onclick="navigateGallery(1)" disabled>
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="gallery-counter" id="galleryCounter" style="display: none;">
+                        <span id="currentImageIndex">1</span> / <span id="totalImages">1</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Side - Product Info -->
+            <div class="product-info-section">
+                <span class="product-category-badge"><?php echo htmlspecialchars($product['category_name']); ?></span>
+                
+                <h1 class="product-title"><?php echo htmlspecialchars($product['product_name']); ?></h1>
+
+                <div class="product-attributes">
+                    <?php if ($genderLabel): ?>
+                    <div class="attribute-badge">
+                        <i class="fas fa-venus-mars"></i>
+                        <span><?php echo $genderLabel; ?></span>
+                    </div>
                     <?php endif; ?>
+
+                    <?php if ($product['subcategory_name']): ?>
+                    <div class="attribute-badge">
+                        <i class="fas fa-tag"></i>
+                        <span><?php echo htmlspecialchars($product['subcategory_name']); ?></span>
+                    </div>
+                    <?php endif; ?>
+
+                    <div class="attribute-badge">
+                        <i class="fas fa-layer-group"></i>
+                        <span><?php echo count($sizes); ?> Size<?php echo count($sizes) > 1 ? 's' : ''; ?></span>
+                    </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- Product Info -->
-        <div class="product-info">
-            <div class="product-category"><?php echo htmlspecialchars($product['category_name']); ?></div>
-            
-            <h1 class="product-title"><?php echo htmlspecialchars($product['product_name']); ?></h1>
-
-            <div class="product-rating">
-                <div class="stars">
-                    <i class="fas fa-star"></i>
-                    <i class="fas fa-star"></i>
-                    <i class="fas fa-star"></i>
-                    <i class="fas fa-star"></i>
-                    <i class="fas fa-star-half-alt"></i>
+                <?php if (!empty($product['description'])): ?>
+                <div class="product-description">
+                    <h3><i class="fas fa-info-circle"></i> Description</h3>
+                    <p><?php echo nl2br(htmlspecialchars($product['description'])); ?></p>
                 </div>
-                <span class="rating-text">4.5 (128 reviews)</span>
-            </div>
+                <?php endif; ?>
 
-            <!-- Price Section -->
-            <div class="price-section">
-                <div class="current-price">Rs.<?php echo number_format($final_price, 2); ?></div>
-                <div class="price-details">
-                    <?php if ($product['discount'] > 0): ?>
-                        <span class="original-price">Rs.<?php echo number_format($product['price'], 2); ?></span>
-                        <span class="discount-badge">Save <?php echo $product['discount']; ?>%</span>
-                        <span class="savings-text">
-                            You save Rs.<?php echo number_format($product['price'] - $final_price, 2); ?>
+                <!-- Size Selection -->
+                <div class="sizes-section">
+                    <h3 class="sizes-header">
+                        <i class="fas fa-ruler-combined"></i>
+                        Select Size
+                    </h3>
+                    <div class="sizes-grid">
+                        <?php foreach ($sizes as $index => $size): ?>
+                            <?php 
+                            $is_out_of_stock = $size['quantity'] == 0;
+                            $final_price = $size['price'] - ($size['price'] * $size['discount'] / 100);
+                            ?>
+                            <div class="size-card <?php echo $is_out_of_stock ? 'out-of-stock' : ''; ?> <?php echo $index === 0 && !$is_out_of_stock ? 'selected' : ''; ?>" 
+                                 data-size-id="<?php echo $size['id']; ?>"
+                                 data-size="<?php echo htmlspecialchars($size['size']); ?>"
+                                 data-price="<?php echo $final_price; ?>"
+                                 data-original-price="<?php echo $size['price']; ?>"
+                                 data-discount="<?php echo $size['discount']; ?>"
+                                 data-max-qty="<?php echo $size['quantity']; ?>"
+                                 data-photos='<?php echo json_encode($size['photos']); ?>'
+                                 onclick="<?php echo !$is_out_of_stock ? 'selectSize(this)' : ''; ?>">
+                                <div class="size-label"><?php echo htmlspecialchars($size['size']); ?></div>
+                                <div class="size-price">Rs. <?php echo number_format($final_price, 2); ?></div>
+                                <?php if ($size['discount'] > 0): ?>
+                                    <div class="size-original-price">Rs. <?php echo number_format($size['price'], 2); ?></div>
+                                    <div class="size-discount"><?php echo $size['discount']; ?>% OFF</div>
+                                <?php endif; ?>
+                                <div class="size-quantity">
+                                    <i class="fas fa-cube"></i>
+                                    <span class="stock-count"><?php echo $size['quantity']; ?></span>
+                                    <span><?php echo $is_out_of_stock ? 'Out' : 'left'; ?></span>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <div class="selected-size-info" id="selectedSizeInfo">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Size <strong id="selectedSizeDisplay"></strong> selected</span>
+                    </div>
+                </div>
+
+                <!-- Price Display -->
+                <div class="price-section" id="priceSection">
+                    <div class="price-label">Price</div>
+                    <div class="price-value" id="displayPrice">Rs. 0.00</div>
+                    <div id="originalPriceDisplay" style="display: none;">
+                        <span class="price-original" id="displayOriginalPrice">Rs. 0.00</span>
+                    </div>
+                    <div id="savingsDisplay" style="display: none;">
+                        <span class="savings-badge">
+                            <i class="fas fa-tags"></i>
+                            You save Rs. <span id="savingsAmount">0.00</span>
                         </span>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <!-- Product Attributes -->
-            <div class="product-attributes">
-                <?php if ($product['gender'] !== null): ?>
-                <div class="attribute-item">
-                    <i class="fas fa-venus-mars"></i>
-                    <div class="attribute-label">Gender</div>
-                    <div class="attribute-value"><?php echo $product['gender'] == 0 ? 'Men' : 'Women'; ?></div>
-                </div>
-                <?php endif; ?>
-
-                <?php if ($product['size'] !== null): ?>
-                <div class="attribute-item">
-                    <i class="fas fa-ruler"></i>
-                    <div class="attribute-label">Size</div>
-                    <div class="attribute-value"><?php echo htmlspecialchars($product['size']); ?></div>
-                </div>
-                <?php endif; ?>
-
-                <div class="attribute-item">
-                    <i class="fas fa-box"></i>
-                    <div class="attribute-label">Stock</div>
-                    <div class="attribute-value"><?php echo $product['stock_quantity']; ?> Units</div>
-                </div>
-
-                <div class="attribute-item">
-                    <i class="fas fa-tag"></i>
-                    <div class="attribute-label">SKU</div>
-                    <div class="attribute-value">#<?php echo str_pad($product['id'], 6, '0', STR_PAD_LEFT); ?></div>
-                </div>
-            </div>
-
-            <!-- Quantity Selector -->
-            <div class="quantity-section">
-                <div class="section-label">Quantity</div>
-                <div class="quantity-selector">
-                    <div class="quantity-controls">
-                        <button class="quantity-btn" onclick="decreaseQuantity()">
-                            <i class="fas fa-minus"></i>
-                        </button>
-                        <input type="number" class="quantity-input" id="quantity" value="1" min="1" max="<?php echo $product['stock_quantity']; ?>" readonly>
-                        <button class="quantity-btn" onclick="increaseQuantity()">
-                            <i class="fas fa-plus"></i>
-                        </button>
-                    </div>
-                    <div class="stock-indicator <?php echo $product['stock_quantity'] > 10 ? 'in-stock' : 'low-stock'; ?>">
-                        <i class="fas fa-circle"></i>
-                        <?php echo $product['stock_quantity'] > 10 ? 'In Stock' : 'Low Stock'; ?>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Action Buttons -->
-            <div class="action-buttons">
-                <button class="btn-primary" onclick="addToCart(<?php echo $product['id']; ?>)">
-                    <i class="fas fa-shopping-cart"></i>
-                    Add to Cart
-                </button>
-                <button class="btn-secondary" onclick="buyNow(<?php echo $product['id']; ?>)">
-                    <i class="fas fa-bolt"></i>
-                    Buy Now
-                </button>
-            </div>
-
-            <!-- Product Tabs -->
-            <div class="product-tabs">
-                <div class="tab-buttons">
-                    <button class="tab-btn active" onclick="switchTab('description')">Description</button>
-                    <button class="tab-btn" onclick="switchTab('features')">Features</button>
-                    <button class="tab-btn" onclick="switchTab('delivery')">Delivery</button>
-                </div>
-
-                <div class="tab-content active" id="description">
-                    <div class="description-content">
-                        <?php if (!empty($product['description'])): ?>
-                            <p><?php echo nl2br(htmlspecialchars($product['description'])); ?></p>
-                        <?php else: ?>
-                            <p>Experience premium quality with this exceptional product from our exclusive collection. Crafted with attention to detail and designed for comfort, this piece represents the perfect blend of style and functionality.</p>
-                            <p>Made from high-quality materials that ensure durability and long-lasting wear. The design incorporates modern aesthetics while maintaining timeless appeal, making it a versatile addition to any wardrobe.</p>
-                        <?php endif; ?>
                     </div>
                 </div>
 
-                <div class="tab-content" id="features">
-                    <ul class="features-list">
-                        <li><i class="fas fa-check-circle"></i> Premium quality materials</li>
-                        <li><i class="fas fa-check-circle"></i> Comfortable and breathable fabric</li>
-                        <li><i class="fas fa-check-circle"></i> Perfect fit guaranteed</li>
-                        <li><i class="fas fa-check-circle"></i> Easy care and maintenance</li>
-                        <li><i class="fas fa-check-circle"></i> Durable construction</li>
-                        <li><i class="fas fa-check-circle"></i> Fashion-forward design</li>
-                    </ul>
+                <!-- Stock Status -->
+                <div class="stock-status in-stock" id="stockStatus">
+                    <i class="fas fa-check-circle"></i>
+                    <span id="stockStatusText">In Stock</span>
                 </div>
 
-<div class="tab-content" id="delivery">
-    <ul class="features-list">
-        <li><i class="fas fa-truck"></i> Free delivery on orders over Rs.5,000</li>
-        <li><i class="fas fa-clock"></i> Delivery within 3-5 business days</li>
-        <li><i class="fas fa-map-marker-alt"></i> Nationwide delivery available</li>
-        <li><i class="fas fa-box"></i> Secure packaging guaranteed</li>
-        <li><i class="fas fa-mobile-alt"></i> Track your order in real-time</li>
-        <li><i class="fas fa-undo"></i> 30-day easy return policy</li>
-        <li><i class="fas fa-headset"></i> 24/7 customer support</li>
-    </ul>
-</div>
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button class="btn btn-primary" id="buyNowBtn" onclick="handleBuyNow()">
+                        <i class="fas fa-shopping-bag"></i>
+                        Buy Now
+                    </button>
+                    <button class="btn btn-secondary" id="addToCartBtn" onclick="handleAddToCart()">
+                        <i class="fas fa-cart-plus"></i>
+                        Add to Cart
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
 
-    <!-- Related Products -->
-    <?php if ($related_result->num_rows > 0): ?>
-    <section class="related-products">
-        <div class="section-header">
-            <h2 class="section-title">You May Also Like</h2>
-            <p class="section-subtitle">Discover more amazing products from our collection</p>
-        </div>
-
-        <div class="products-grid">
-            <?php while ($related = $related_result->fetch_assoc()): ?>
-                <?php 
-                $related_final_price = $related['price'] - ($related['price'] * $related['discount'] / 100);
-                ?>
-                <div class="product-card" onclick="window.location.href='/fashionhub/ProductDetails.php?id=<?php echo $related['id']; ?>'">
-                    <div class="product-image-wrapper">
-                        <div class="product-image">
-                            <?php if (!empty($related['product_photo'])): ?>
-                                <img src="data:image/jpeg;base64,<?php echo $related['product_photo']; ?>" 
-                                     alt="<?php echo htmlspecialchars($related['product_name']); ?>">
+        <!-- Related Products -->
+        <?php if ($related_result->num_rows > 0): ?>
+        <div class="related-section">
+            <div class="section-header">
+                <h2>You May Also Like</h2>
+                <p>Discover more products from the same collection</p>
+            </div>
+            <div class="related-grid">
+                <?php while ($related = $related_result->fetch_assoc()): ?>
+                    <?php
+                    $final_price = $related['min_price'] - ($related['min_price'] * $related['max_discount'] / 100);
+                    
+                    // Get first photo for related product
+                    $related_photo_sql = "SELECT photo FROM photos WHERE product_id = ? LIMIT 1";
+                    $photo_stmt = $conn->prepare($related_photo_sql);
+                    $photo_stmt->bind_param("i", $related['id']);
+                    $photo_stmt->execute();
+                    $photo_result = $photo_stmt->get_result();
+                    $related_photo = $photo_result->fetch_assoc();
+                    $photo_stmt->close();
+                    ?>
+                    <div class="related-card" onclick="window.location.href='ProductDetails.php?id=<?php echo $related['id']; ?>'">
+                        <div class="related-image">
+                            <?php if ($related_photo): ?>
+                                <img src="data:image/jpeg;base64,<?php echo $related_photo['photo']; ?>" 
+                                     alt="<?php echo htmlspecialchars($related['product_name']); ?>"
+                                     style="width: 100%; height: 100%; object-fit: cover;">
                             <?php else: ?>
                                 <i class="fas fa-tshirt"></i>
                             <?php endif; ?>
                         </div>
-
-                        <?php if ($related['discount'] > 0): ?>
-                        <div class="product-badges">
-                            <span class="badge badge-discount"><?php echo $related['discount']; ?>% OFF</span>
+                        <div class="related-info">
+                            <h4 class="related-name"><?php echo htmlspecialchars($related['product_name']); ?></h4>
+                            <div class="related-price">Rs. <?php echo number_format($final_price, 2); ?></div>
                         </div>
-                        <?php endif; ?>
                     </div>
-
-                    <div class="card-info">
-                        <div class="card-category"><?php echo htmlspecialchars($related['category_name']); ?></div>
-                        <h3 class="card-name"><?php echo htmlspecialchars($related['product_name']); ?></h3>
-                        <div class="card-price">Rs.<?php echo number_format($related_final_price, 2); ?></div>
-                    </div>
-                </div>
-            <?php endwhile; ?>
+                <?php endwhile; ?>
+            </div>
         </div>
-    </section>
-    <?php endif; ?>
+        <?php endif; ?>
+    </div>
 
     <!-- Members Only Modal -->
     <div class="login-modal" id="membersOnlyModal">
@@ -1096,7 +1094,7 @@ $related_result = $stmt_related->get_result();
                 <p>Exclusive access for registered members</p>
             </div>
             <div class="login-modal-body">
-                <p>To add items to your cart and enjoy exclusive member benefits, please log in to your account or create a new one.</p>
+                <p>To purchase this product or add it to your cart, please log in to your account or create a new one.</p>
                 <div class="login-modal-actions">
                     <button class="btn-login-modal" onclick="openLoginFromMembersModal()">
                         <i class="fas fa-sign-in-alt"></i>
@@ -1113,278 +1111,384 @@ $related_result = $stmt_related->get_result();
 
     <?php include 'Components/Footer.php'; ?>
 
-<script>
+    <script>
+        let currentImageIndex = 0;
+        let currentPhotos = [];
+        let selectedSizeData = null;
+        const isLoggedIn = false; 
 
-// Quantity Controls (for ProductDetails.php)
-function increaseQuantity() {
-    const input = document.getElementById('quantity');
-    if (!input) return;
-    const max = parseInt(input.max);
-    let value = parseInt(input.value);
-    
-    if (value < max) {
-        input.value = value + 1;
-    }
-}
+        // Initialize with first available size on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const firstAvailableSize = document.querySelector('.size-card:not(.out-of-stock)');
+            if (firstAvailableSize) {
+                selectSize(firstAvailableSize);
+            }
+        });
 
-function decreaseQuantity() {
-    const input = document.getElementById('quantity');
-    if (!input) return;
-    let value = parseInt(input.value);
-    
-    if (value > 1) {
-        input.value = value - 1;
-    }
-}
+        function selectSize(element) {
+            // Remove selection from all size cards
+            document.querySelectorAll('.size-card').forEach(card => {
+                card.classList.remove('selected');
+            });
 
-// Tab Switching (for ProductDetails.php)
-function switchTab(tabName) {
-    const tabBtns = document.querySelectorAll('.tab-btn');
-    const tabContents = document.querySelectorAll('.tab-content');
-    
-    tabBtns.forEach(btn => btn.classList.remove('active'));
-    tabContents.forEach(content => content.classList.remove('active'));
-    
-    event.target.classList.add('active');
-    const targetTab = document.getElementById(tabName);
-    if (targetTab) {
-        targetTab.classList.add('active');
-    }
-}
+            // Add selection to clicked card
+            element.classList.add('selected');
 
-// Add to Cart - ALWAYS shows modal for public pages
-function addToCart(productId) {
-    console.log('addToCart called with productId:', productId);
-    console.log('Opening members only modal...');
-    openMembersOnlyModal();
-}
+            // Get size data
+            const sizeId = element.getAttribute('data-size-id');
+            const size = element.getAttribute('data-size');
+            const price = parseFloat(element.getAttribute('data-price'));
+            const originalPrice = parseFloat(element.getAttribute('data-original-price'));
+            const discount = parseFloat(element.getAttribute('data-discount'));
+            const maxQty = parseInt(element.getAttribute('data-max-qty'));
+            const photos = JSON.parse(element.getAttribute('data-photos'));
 
-// Buy Now - ALWAYS shows modal for public pages
-function buyNow(productId) {
-    console.log('buyNow called with productId:', productId);
-    console.log('Opening members only modal...');
-    openMembersOnlyModal();
-}
+            // Store selected size data
+            selectedSizeData = {
+                id: sizeId,
+                size: size,
+                price: price,
+                originalPrice: originalPrice,
+                discount: discount,
+                maxQuantity: maxQty,
+                photos: photos
+            };
 
-// Quick View (for Collections page)
-function quickView(productId) {
-    window.location.href = '/fashionhub/ProductDetails.php?id=' + productId;
-}
+            // Update photos in gallery
+            updateGallery(photos);
 
-// Members Only Modal Functions
-function openMembersOnlyModal() {
-    console.log('openMembersOnlyModal called');
-    const modal = document.getElementById('membersOnlyModal');
-    console.log('Modal element found:', !!modal);
-    
-    if (!modal) {
-        console.error('Members Only Modal element not found in DOM!');
-        alert('Please login or signup to continue');
-        window.location.href = '/fashionhub/Homepage.php';
+            // Update selected size display
+            document.getElementById('selectedSizeDisplay').textContent = size;
+
+            // Update price display
+            updatePriceDisplay();
+
+            // Update stock status
+            updateStockStatus(maxQty);
+
+            // Smooth scroll to price section on mobile
+            if (window.innerWidth <= 1024) {
+                document.getElementById('priceSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+
+        function updateGallery(photos) {
+            const gallery = document.getElementById('imageGallery');
+            const placeholder = document.getElementById('galleryPlaceholder');
+            const counter = document.getElementById('galleryCounter');
+            
+            // Clear existing images
+            const existingImages = gallery.querySelectorAll('.gallery-image');
+            existingImages.forEach(img => img.remove());
+
+            currentPhotos = photos;
+            currentImageIndex = 0;
+
+            if (photos && photos.length > 0) {
+                // Hide placeholder
+                placeholder.style.display = 'none';
+                
+                // Create image elements
+                photos.forEach((photo, index) => {
+                    const img = document.createElement('img');
+                    img.src = `data:image/jpeg;base64,${photo}`;
+                    img.classList.add('gallery-image');
+                    if (index === 0) {
+                        img.classList.add('active');
+                    }
+                    gallery.appendChild(img);
+                });
+
+                // Update counter
+                document.getElementById('currentImageIndex').textContent = '1';
+                document.getElementById('totalImages').textContent = photos.length;
+                counter.style.display = photos.length > 1 ? 'block' : 'none';
+
+                // Update navigation buttons
+                updateNavigationButtons();
+            } else {
+                // Show placeholder
+                placeholder.style.display = 'flex';
+                counter.style.display = 'none';
+                document.getElementById('prevBtn').disabled = true;
+                document.getElementById('nextBtn').disabled = true;
+            }
+        }
+
+        function navigateGallery(direction) {
+            if (currentPhotos.length === 0) return;
+
+            const images = document.querySelectorAll('.gallery-image');
+            
+            // Remove active class from current image
+            images[currentImageIndex].classList.remove('active');
+
+            // Update index
+            currentImageIndex += direction;
+
+            // Add active class to new image
+            images[currentImageIndex].classList.add('active');
+
+            // Update counter
+            document.getElementById('currentImageIndex').textContent = currentImageIndex + 1;
+
+            // Update navigation buttons
+            updateNavigationButtons();
+        }
+
+        function updateNavigationButtons() {
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+
+            prevBtn.disabled = currentImageIndex === 0;
+            nextBtn.disabled = currentImageIndex === currentPhotos.length - 1;
+        }
+
+        function updatePriceDisplay() {
+            if (!selectedSizeData) return;
+
+            document.getElementById('displayPrice').textContent = 'Rs. ' + selectedSizeData.price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+            if (selectedSizeData.discount > 0) {
+                document.getElementById('displayOriginalPrice').textContent = 'Rs. ' + selectedSizeData.originalPrice.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+                document.getElementById('originalPriceDisplay').style.display = 'block';
+
+                const savings = selectedSizeData.originalPrice - selectedSizeData.price;
+                document.getElementById('savingsAmount').textContent = savings.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+                document.getElementById('savingsDisplay').style.display = 'block';
+            } else {
+                document.getElementById('originalPriceDisplay').style.display = 'none';
+                document.getElementById('savingsDisplay').style.display = 'none';
+            }
+        }
+
+        function updateStockStatus(quantity) {
+            const statusDiv = document.getElementById('stockStatus');
+            const statusText = document.getElementById('stockStatusText');
+            const buyBtn = document.getElementById('buyNowBtn');
+            const cartBtn = document.getElementById('addToCartBtn');
+
+            if (quantity === 0) {
+                statusDiv.className = 'stock-status out-of-stock';
+                statusDiv.innerHTML = '<i class="fas fa-times-circle"></i><span>Out of Stock</span>';
+                buyBtn.disabled = true;
+                cartBtn.disabled = true;
+            } else if (quantity <= 10) {
+                statusDiv.className = 'stock-status low-stock';
+                statusDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i><span>Only ${quantity} left in stock</span>`;
+                buyBtn.disabled = false;
+                cartBtn.disabled = false;
+            } else {
+                statusDiv.className = 'stock-status in-stock';
+                statusDiv.innerHTML = '<i class="fas fa-check-circle"></i><span>In Stock</span>';
+                buyBtn.disabled = false;
+                cartBtn.disabled = false;
+            }
+        }
+
+function handleBuyNow() {
+    if (!selectedSizeData) {
+        alert('Please select a size');
         return;
     }
-    
-    // Force display
-    modal.style.display = 'flex';
-    modal.classList.add('active');
-    document.body.style.overflow = 'hidden';
-    console.log('Modal is now visible');
+    openMembersOnlyModal();
 }
 
-function closeMembersOnlyModal() {
-    console.log('closeMembersOnlyModal called');
-    const modal = document.getElementById('membersOnlyModal');
-    
-    if (modal) {
-        modal.classList.remove('active');
-        setTimeout(() => {
-            modal.style.display = 'none';
-        }, 300);
-        document.body.style.overflow = '';
-        console.log('Modal closed');
+function handleAddToCart() {
+    if (!selectedSizeData) {
+        alert('Please select a size');
+        return;
     }
+    openMembersOnlyModal();
 }
 
-// Open login from members modal
-function openLoginFromMembersModal() {
-    console.log('openLoginFromMembersModal called');
-    closeMembersOnlyModal();
-    
-    setTimeout(function() {
-        const navLoginBtn = document.getElementById('loginBtn');
-        const loginModal = document.getElementById('loginModal');
-        
-        console.log('Login button found:', !!navLoginBtn);
-        console.log('Login modal found:', !!loginModal);
-        
-        if (navLoginBtn) {
-            navLoginBtn.click();
-        } else if (loginModal) {
-            loginModal.style.display = 'flex';
-            loginModal.classList.add('active');
-            document.body.style.overflow = 'hidden';
-        } else {
-            console.log('No login method found, redirecting to homepage');
-            window.location.href = '/fashionhub/Homepage.php';
+        function addToCart(sizeId) {
+            const formData = new FormData();
+            formData.append('add_to_cart', '1');
+            formData.append('selected_size_id', sizeId);
+            formData.append('quantity', 1);
+            
+            const btn = document.getElementById('addToCartBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...';
+            
+            fetch('OrderNow.php?product_id=<?php echo $product_id; ?>', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(data.message, 'success');
+                    
+                    // Update cart display if function exists
+                    if (typeof window.updateCartDisplay === 'function') {
+                        window.updateCartDisplay({
+                            cart_count: data.cart_count,
+                            cart_total: data.cart_total,
+                            cart_items: data.cart_items
+                        });
+                    }
+                    
+                    setTimeout(() => {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
+                    }, 1000);
+                } else {
+                    showNotification(data.message, 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showNotification('Failed to add to cart. Please try again.', 'error');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
+            });
         }
-    }, 350);
-}
 
-// Open signup from members modal
-function openSignupFromMembersModal() {
-    console.log('openSignupFromMembersModal called');
-    closeMembersOnlyModal();
-    
-    setTimeout(function() {
-        const navSignupBtn = document.getElementById('signupBtn');
-        const signupModal = document.getElementById('signupModal');
-        
-        console.log('Signup button found:', !!navSignupBtn);
-        console.log('Signup modal found:', !!signupModal);
-        
-        if (navSignupBtn) {
-            navSignupBtn.click();
-        } else if (signupModal) {
-            signupModal.style.display = 'flex';
-            signupModal.classList.add('active');
-            document.body.style.overflow = 'hidden';
-        } else {
-            console.log('No signup method found, redirecting to homepage');
-            window.location.href = '/fashionhub/Homepage.php';
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 90px;
+                right: 30px;
+                padding: 18px 24px;
+                border-radius: 12px;
+                background: ${type === 'success' ? 'linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%)' : 'linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%)'};
+                color: ${type === 'success' ? '#155724' : '#721c24'};
+                border: 2px solid ${type === 'success' ? '#28a745' : '#dc3545'};
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                font-weight: 600;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                z-index: 10000;
+                animation: slideInRight 0.4s ease;
+            `;
+            
+            notification.innerHTML = `
+                <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}" style="font-size: 20px;"></i>
+                <span>${message}</span>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.animation = 'slideOutRight 0.4s ease';
+                setTimeout(() => notification.remove(), 400);
+            }, 3000);
         }
-    }, 350);
-}
 
-// View Toggle (for Collections page)
-function setView(view) {
-    const grid = document.getElementById('productsGrid');
-    const gridBtn = document.getElementById('gridViewBtn');
-    const listBtn = document.getElementById('listViewBtn');
-    const cards = document.querySelectorAll('.product-card');
+        // Members Only Modal Functions
+        function openMembersOnlyModal() {
+            const modal = document.getElementById('membersOnlyModal');
+            if (modal) {
+                modal.classList.add('active');
+                document.body.style.overflow = 'hidden';
+            }
+        }
 
-    if (!grid) return;
+        function closeMembersOnlyModal() {
+            const modal = document.getElementById('membersOnlyModal');
+            if (modal) {
+                modal.classList.remove('active');
+                document.body.style.overflow = '';
+            }
+        }
 
-    if (view === 'grid') {
-        grid.classList.remove('list-view');
-        if (gridBtn) gridBtn.classList.add('active');
-        if (listBtn) listBtn.classList.remove('active');
-        cards.forEach(card => card.classList.remove('list-view'));
-    } else {
-        grid.classList.add('list-view');
-        if (listBtn) listBtn.classList.add('active');
-        if (gridBtn) gridBtn.classList.remove('active');
-        cards.forEach(card => card.classList.add('list-view'));
-    }
+        function openLoginFromMembersModal() {
+            closeMembersOnlyModal();
+            setTimeout(function() {
+                const navLoginBtn = document.getElementById('loginBtn');
+                const loginModal = document.getElementById('loginModal');
+                
+                if (navLoginBtn) {
+                    navLoginBtn.click();
+                } else if (loginModal) {
+                    loginModal.classList.add('active');
+                    document.body.style.overflow = 'hidden';
+                } else {
+                    window.location.href = '/fashionhub/Homepage.php?action=login';
+                }
+            }, 300);
+        }
 
-    localStorage.setItem('preferredView', view);
-}
+        function openSignupFromMembersModal() {
+            closeMembersOnlyModal();
+            setTimeout(function() {
+                const navSignupBtn = document.getElementById('signupBtn');
+                const signupModal = document.getElementById('signupModal');
+                
+                if (navSignupBtn) {
+                    navSignupBtn.click();
+                } else if (signupModal) {
+                    signupModal.classList.add('active');
+                    document.body.style.overflow = 'hidden';
+                } else {
+                    window.location.href = '/fashionhub/Homepage.php?action=signup';
+                }
+            }, 300);
+        }
 
-// Sort Change (for Collections page)
-function changeSort(sortValue) {
-    const url = new URL(window.location.href);
-    url.searchParams.set('sort', sortValue);
-    window.location.href = url.toString();
-}
+        // Close modals on escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                const membersModal = document.getElementById('membersOnlyModal');
+                if (membersModal && membersModal.classList.contains('active')) {
+                    closeMembersOnlyModal();
+                }
+            }
+        });
 
-// Size Selection (for Collections page)
-function selectSize(size) {
-    const sizeInput = document.getElementById('sizeInput');
-    if (!sizeInput) return;
-    
-    const currentSize = sizeInput.value;
-    
-    if (currentSize === size) {
-        sizeInput.value = '';
-    } else {
-        sizeInput.value = size;
-    }
-    
-    const form = document.getElementById('filtersForm');
-    if (form) form.submit();
-}
-
-function clearSize() {
-    const sizeInput = document.getElementById('sizeInput');
-    if (sizeInput) {
-        sizeInput.value = '';
-        const form = document.getElementById('filtersForm');
-        if (form) form.submit();
-    }
-}
-
-// Mobile Filter Toggle (for Collections page)
-function toggleFilters() {
-    const sidebar = document.getElementById('filtersSidebar');
-    const overlay = document.getElementById('filterOverlay');
-    
-    if (sidebar) sidebar.classList.toggle('active');
-    if (overlay) overlay.classList.toggle('active');
-    
-    document.body.style.overflow = (sidebar && sidebar.classList.contains('active')) ? 'hidden' : '';
-}
-
-// Event Listeners
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM Content Loaded');
-    
-    // Check if modal exists
-    const membersModal = document.getElementById('membersOnlyModal');
-    console.log('Members modal exists on page load:', !!membersModal);
-    
-    if (membersModal) {
-        // Make sure modal is hidden initially
-        membersModal.style.display = 'none';
-        
-        // Click outside to close
-        membersModal.addEventListener('click', function(e) {
+        // Close members only modal when clicking outside
+        document.getElementById('membersOnlyModal').addEventListener('click', function(e) {
             if (e.target === this) {
                 closeMembersOnlyModal();
             }
         });
-    }
-    
-    // Load preferred view for Collections page
-    const preferredView = localStorage.getItem('preferredView') || 'grid';
-    if (document.getElementById('productsGrid')) {
-        setView(preferredView);
-    }
-    
-    // Smooth scroll for filter form
-    const filtersForm = document.getElementById('filtersForm');
-    if (filtersForm) {
-        filtersForm.addEventListener('submit', function() {
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+        // Keyboard navigation for gallery
+        document.addEventListener('keydown', function(e) {
+            if (currentPhotos.length <= 1) return;
+
+            if (e.key === 'ArrowLeft') {
+                if (currentImageIndex > 0) {
+                    navigateGallery(-1);
+                }
+            } else if (e.key === 'ArrowRight') {
+                if (currentImageIndex < currentPhotos.length - 1) {
+                    navigateGallery(1);
+                }
+            }
         });
-    }
-});
 
-// Close modal on Escape key
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-        const membersModal = document.getElementById('membersOnlyModal');
-        if (membersModal && membersModal.classList.contains('active')) {
-            closeMembersOnlyModal();
-        }
-        
-        // Also close filters sidebar on Collections page
-        const sidebar = document.getElementById('filtersSidebar');
-        if (sidebar && sidebar.classList.contains('active')) {
-            toggleFilters();
-        }
-    }
-});
-
-// Page load animation (for ProductDetails page)
-window.addEventListener('load', function() {
-    // Fade in animation
-    if (document.body.style.opacity !== undefined) {
-        document.body.style.opacity = '0';
-        document.body.style.transition = 'opacity 0.3s ease';
-        setTimeout(() => {
-            document.body.style.opacity = '1';
-        }, 100);
-    }
-});
-</script>
+        // Add CSS animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideInRight {
+                from {
+                    opacity: 0;
+                    transform: translateX(100px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+            }
+            @keyframes slideOutRight {
+                from {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+                to {
+                    opacity: 0;
+                    transform: translateX(100px);
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
 </body>
 </html>

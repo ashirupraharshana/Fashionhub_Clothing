@@ -1496,17 +1496,9 @@ $price_range = $price_range_result->fetch_assoc();
     <?php include 'Components/Footer.php'; ?>
 
     <script>
-        // Add to Cart - Opens "Members Only" modal for non-logged-in users
-        function addToCart(productId) {
-            const isLoggedIn = <?php echo isset($_SESSION['user_id']) ? 'true' : 'false'; ?>;
-            
-            if (!isLoggedIn) {
-                openMembersOnlyModal();
-            } else {
-                console.log('Adding to cart: Product ID ' + productId);
-                alert('Product added to cart! (Product ID: ' + productId + ')');
-            }
-        }
+function addToCart(productId) {
+    openMembersOnlyModal();
+}
 
         // Members Only Modal Functions
         function openMembersOnlyModal() {
