@@ -1,3 +1,4 @@
+//ContactUs.php
 <?php
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -102,23 +103,37 @@ if ($is_logged_in) {
     $cart_total = $cart_total_row['total'] ?? 0;
     $stmt->close();
     
-    // Get cart items
-    $cart_items_sql = "SELECT c.id, c.product_id, c.quantity, c.price, 
-                       (c.price * c.quantity) as item_total,
-                       p.product_name, p.product_photo 
-                       FROM cart c 
-                       JOIN products p ON c.product_id = p.id 
-                       WHERE c.user_id = ? 
-                       ORDER BY c.id DESC";
-    $stmt = $conn->prepare($cart_items_sql);
-    $stmt->bind_param("i", $user_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
+// Get cart items
+$cart_items_sql = "SELECT c.id, c.product_id, c.quantity, c.price, 
+                   (c.price * c.quantity) as item_total,
+                   p.product_name 
+                   FROM cart c 
+                   JOIN products p ON c.product_id = p.id 
+                   WHERE c.user_id = ? 
+                   ORDER BY c.id DESC";
+$stmt = $conn->prepare($cart_items_sql);
+$stmt->bind_param("i", $user_id);
+$stmt->execute();
+$result = $stmt->get_result();
+
+while ($row = $result->fetch_assoc()) {
+    // Get the first photo for this product
+    $photoStmt = $conn->prepare("SELECT photo FROM photos WHERE product_id = ? ORDER BY id LIMIT 1");
+    $photoStmt->bind_param("i", $row['product_id']);
+    $photoStmt->execute();
+    $photoResult = $photoStmt->get_result();
     
-    while ($row = $result->fetch_assoc()) {
-        $cart_items_array[] = $row;
+    if ($photoResult->num_rows > 0) {
+        $photoRow = $photoResult->fetch_assoc();
+        $row['product_photo'] = $photoRow['photo'];
+    } else {
+        $row['product_photo'] = null;
     }
-    $stmt->close();
+    $photoStmt->close();
+    
+    $cart_items_array[] = $row;
+}
+$stmt->close();
 }
 
 // Pre-fill form data

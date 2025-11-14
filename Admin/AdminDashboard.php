@@ -1,6 +1,6 @@
 <?php
-include '../db_connect.php';
 session_start();
+include '../db_connect.php';
 
 // Check if admin is logged in
 if (!isset($_SESSION['user_id']) || $_SESSION['userrole'] != 1) {
@@ -8,89 +8,56 @@ if (!isset($_SESSION['user_id']) || $_SESSION['userrole'] != 1) {
     exit();
 }
 
-// Get Dashboard Statistics
-$stats = [];
+// Fetch dashboard statistics
+$totalCustomers = $conn->query("SELECT COUNT(*) as count FROM users WHERE userrole = 0")->fetch_assoc()['count'];
+$totalProducts = $conn->query("SELECT COUNT(*) as count FROM products")->fetch_assoc()['count'];
+$totalOrders = $conn->query("SELECT COUNT(*) as count FROM orders")->fetch_assoc()['count'];
+$totalRevenue = $conn->query("SELECT SUM(total_price) as total FROM orders WHERE status = 1")->fetch_assoc()['total'] ?? 0;
 
-// Total Users
-$stats['total_users'] = $conn->query("SELECT COUNT(*) as count FROM users")->fetch_assoc()['count'];
-$stats['new_users_today'] = $conn->query("SELECT COUNT(*) as count FROM users WHERE DATE(created_at) = CURDATE()")->fetch_assoc()['count'];
+// Pending orders
+$pendingOrders = $conn->query("SELECT COUNT(*) as count FROM orders WHERE status = 0")->fetch_assoc()['count'];
 
-// Total Products
-$stats['total_products'] = $conn->query("SELECT COUNT(*) as count FROM products")->fetch_assoc()['count'];
-$stats['low_stock'] = $conn->query("SELECT COUNT(*) as count FROM products WHERE stock_quantity <= 10")->fetch_assoc()['count'];
-$stats['out_of_stock'] = $conn->query("SELECT COUNT(*) as count FROM products WHERE stock_quantity = 0")->fetch_assoc()['count'];
+// Recent orders (last 5)
+$recentOrdersQuery = "SELECT o.*, u.fullname, p.product_name 
+                      FROM orders o 
+                      LEFT JOIN users u ON o.user_id = u.id 
+                      LEFT JOIN products p ON o.product_id = p.id 
+                      ORDER BY o.order_date DESC 
+                      LIMIT 5";
+$recentOrders = $conn->query($recentOrdersQuery);
 
-// Total Orders
-$stats['total_orders'] = $conn->query("SELECT COUNT(*) as count FROM orders")->fetch_assoc()['count'];
-$stats['pending_orders'] = $conn->query("SELECT COUNT(*) as count FROM orders WHERE status = 0")->fetch_assoc()['count'];
-$stats['completed_orders'] = $conn->query("SELECT COUNT(*) as count FROM orders WHERE status = 1")->fetch_assoc()['count'];
+// Low stock products (quantity < 10)
+$lowStockQuery = "SELECT p.product_name, ps.size, ps.quantity 
+                  FROM product_sizes ps 
+                  INNER JOIN products p ON ps.product_id = p.id 
+                  WHERE ps.quantity < 10 
+                  ORDER BY ps.quantity ASC 
+                  LIMIT 5";
+$lowStockProducts = $conn->query($lowStockQuery);
 
-// Total Revenue
-$revenue_result = $conn->query("SELECT SUM(total_price) as total FROM orders WHERE status = 1");
-$stats['total_revenue'] = $revenue_result->fetch_assoc()['total'] ?? 0;
+// Best selling products
+$bestSellingQuery = "SELECT p.product_name, COUNT(o.id) as total_sold, SUM(o.total_price) as revenue
+                     FROM orders o
+                     INNER JOIN products p ON o.product_id = p.id
+                     WHERE o.status = 1
+                     GROUP BY o.product_id
+                     ORDER BY total_sold DESC
+                     LIMIT 5";
+$bestSellingProducts = $conn->query($bestSellingQuery);
 
-$today_revenue = $conn->query("SELECT SUM(total_price) as total FROM orders WHERE status = 1 AND DATE(order_date) = CURDATE()")->fetch_assoc()['total'] ?? 0;
-$stats['today_revenue'] = $today_revenue;
+// Monthly sales data for chart (last 6 months)
+$monthlySalesQuery = "SELECT DATE_FORMAT(order_date, '%Y-%m') as month, 
+                      SUM(total_price) as revenue,
+                      COUNT(*) as orders
+                      FROM orders 
+                      WHERE status = 1 AND order_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+                      GROUP BY month
+                      ORDER BY month ASC";
+$monthlySales = $conn->query($monthlySalesQuery);
 
-// Total Categories
-$stats['total_categories'] = $conn->query("SELECT COUNT(*) as count FROM categories")->fetch_assoc()['count'];
-
-// Total Feedback
-$stats['total_feedback'] = $conn->query("SELECT COUNT(*) as count FROM feedback")->fetch_assoc()['count'];
-$stats['unanswered_feedback'] = $conn->query("SELECT COUNT(*) as count FROM feedback WHERE admin_reply IS NULL")->fetch_assoc()['count'];
-
-// Recent Orders
-$recent_orders = $conn->query("
-    SELECT o.*, u.fullname, p.product_name 
-    FROM orders o
-    LEFT JOIN users u ON o.user_id = u.id
-    LEFT JOIN products p ON o.product_id = p.id
-    ORDER BY o.order_date DESC
-    LIMIT 5
-");
-
-// Low Stock Products
-$low_stock_products = $conn->query("
-    SELECT p.*, c.category_name 
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
-    WHERE p.stock_quantity <= 10
-    ORDER BY p.stock_quantity ASC
-    LIMIT 5
-");
-
-// Recent Users
-$recent_users = $conn->query("
-    SELECT * FROM users 
-    ORDER BY created_at DESC 
-    LIMIT 5
-");
-
-// Pending Orders (for dedicated section)
-$pending_orders_list = $conn->query("
-    SELECT o.*, u.fullname, p.product_name 
-    FROM orders o
-    LEFT JOIN users u ON o.user_id = u.id
-    LEFT JOIN products p ON o.product_id = p.id
-    WHERE o.status = 0
-    ORDER BY o.order_date DESC
-    LIMIT 5
-");
-
-// Sales data for chart (last 7 days)
-$sales_data = [];
-for ($i = 6; $i >= 0; $i--) {
-    $date = date('Y-m-d', strtotime("-$i days"));
-    $daily_sales = $conn->query("
-        SELECT SUM(total_price) as total 
-        FROM orders 
-        WHERE DATE(order_date) = '$date' AND status = 1
-    ")->fetch_assoc()['total'] ?? 0;
-    
-    $sales_data[] = [
-        'date' => date('M d', strtotime($date)),
-        'sales' => floatval($daily_sales)
-    ];
+$salesData = [];
+while ($row = $monthlySales->fetch_assoc()) {
+    $salesData[] = $row;
 }
 ?>
 
@@ -102,772 +69,973 @@ for ($i = 6; $i >= 0; $i--) {
     <title>Admin Dashboard | FashionHub</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f5f7fa;
-        }
-
-        .main-content {
-            margin-left: 280px;
-            margin-top: 70px;
-            padding: 30px;
-            transition: margin-left 0.3s ease;
-            min-height: calc(100vh - 70px);
-        }
-
-        .main-content.expanded {
-            margin-left: 80px;
-        }
-
-        .dashboard-header {
-            margin-bottom: 30px;
-        }
-
-        .dashboard-header h1 {
-            font-size: 32px;
-            color: #333;
-            margin-bottom: 8px;
-            font-weight: 700;
-        }
-
-        .dashboard-header p {
-            color: #999;
-            font-size: 14px;
-        }
-
-        /* Stats Grid */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 25px;
-            margin-bottom: 30px;
-        }
-
-        .stat-card {
-            background: white;
-            padding: 25px;
-            border-radius: 15px;
-            box-shadow: 0 2px 15px rgba(0, 0, 0, 0.08);
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 100px;
-            height: 100px;
-            opacity: 0.1;
-            border-radius: 50%;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-        }
-
-        .stat-card.primary::before {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-
-        .stat-card.success::before {
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        }
-
-        .stat-card.warning::before {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        }
-
-        .stat-card.danger::before {
-            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-        }
-
-        .stat-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 15px;
-        }
-
-        .stat-icon {
-            width: 50px;
-            height: 50px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            color: white;
-        }
-
-        .stat-icon.primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-
-        .stat-icon.success {
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        }
-
-        .stat-icon.warning {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        }
-
-        .stat-icon.danger {
-            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-        }
-
-        .stat-trend {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            font-size: 12px;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-weight: 600;
-        }
-
-        .stat-trend.up {
-            background: rgba(39, 174, 96, 0.1);
-            color: #27ae60;
-        }
-
-        .stat-trend.down {
-            background: rgba(231, 76, 60, 0.1);
-            color: #e74c3c;
-        }
-
-        .stat-body h3 {
-            font-size: 32px;
-            font-weight: 700;
-            color: #333;
-            margin-bottom: 5px;
-        }
-
-        .stat-body p {
-            color: #999;
-            font-size: 14px;
-            font-weight: 600;
-        }
-
-        /* Content Grid */
-        .content-grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 25px;
-            margin-bottom: 30px;
-        }
-
-        .card {
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 2px 15px rgba(0, 0, 0, 0.08);
-        }
-
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid #f0f0f0;
-        }
-
-        .card-header h3 {
-            font-size: 18px;
-            font-weight: 700;
-            color: #333;
-        }
-
-        .card-header a {
-            color: #667eea;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 600;
-            transition: all 0.3s;
-        }
-
-        .card-header a:hover {
-            color: #5568d3;
-        }
-
-        /* Recent Orders Table */
-        .orders-table {
-            width: 100%;
-        }
-
-        .orders-table .order-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 15px 0;
-            border-bottom: 1px solid #f5f5f5;
-        }
-
-        .orders-table .order-row:last-child {
-            border-bottom: none;
-        }
-
-        .order-info {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .order-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        .order-details h4 {
-            font-size: 14px;
-            color: #333;
-            margin-bottom: 3px;
-        }
-
-        .order-details p {
-            font-size: 12px;
-            color: #999;
-        }
-
-        .order-status {
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .order-status.pending {
-            background: rgba(243, 156, 18, 0.1);
-            color: #f39c12;
-        }
-
-        .order-status.completed {
-            background: rgba(39, 174, 96, 0.1);
-            color: #27ae60;
-        }
-
-        .order-status.cancelled {
-            background: rgba(231, 76, 60, 0.1);
-            color: #e74c3c;
-        }
-
-        .order-price {
-            font-weight: 700;
-            color: #667eea;
-            font-size: 14px;
-        }
-
-        /* Low Stock Products */
-        .product-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 15px 0;
-            border-bottom: 1px solid #f5f5f5;
-        }
-
-        .product-item:last-child {
-            border-bottom: none;
-        }
-
-        .product-info h4 {
-            font-size: 14px;
-            color: #333;
-            margin-bottom: 5px;
-        }
-
-        .product-info p {
-            font-size: 12px;
-            color: #999;
-        }
-
-        .stock-badge {
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-
-        .stock-badge.low {
-            background: rgba(243, 156, 18, 0.1);
-            color: #f39c12;
-        }
-
-        .stock-badge.out {
-            background: rgba(231, 76, 60, 0.1);
-            color: #e74c3c;
-        }
-
-        /* Chart Container */
-        .chart-container {
-            position: relative;
-            height: 300px;
-            margin-top: 20px;
-        }
-
-        /* Recent Users */
-        .user-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 0;
-            border-bottom: 1px solid #f5f5f5;
-        }
-
-        .user-item:last-child {
-            border-bottom: none;
-        }
-
-        .user-avatar-small {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        .user-info-small h4 {
-            font-size: 14px;
-            color: #333;
-            margin-bottom: 3px;
-        }
-
-        .user-info-small p {
-            font-size: 12px;
-            color: #999;
-        }
-
-        /* Quick Actions */
-        .quick-actions {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-        }
-
-        .action-btn {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 15px 20px;
-            background: white;
-            border: 2px solid #f0f0f0;
-            border-radius: 12px;
-            text-decoration: none;
-            color: #333;
-            transition: all 0.3s;
-            font-weight: 600;
-        }
-
-        .action-btn:hover {
-            border-color: #667eea;
-            transform: translateY(-3px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
-        }
-
-        .action-btn i {
-            font-size: 20px;
-            color: #667eea;
-        }
-
-        /* Empty State */
-        .empty-state {
-            text-align: center;
-            padding: 40px 20px;
-            color: #999;
-        }
-
-        .empty-state i {
-            font-size: 48px;
-            margin-bottom: 15px;
-            color: #ddd;
-        }
-
-        .empty-state p {
-            font-size: 14px;
-        }
-
-        /* Responsive */
-        @media (max-width: 1200px) {
-            .content-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        @media (max-width: 768px) {
-            .main-content {
-                margin-left: 0;
-                padding: 20px 15px;
-            }
-
-            .stats-grid {
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 15px;
-            }
-
-            .stat-card {
-                padding: 20px;
-            }
-
-            .stat-body h3 {
-                font-size: 24px;
-            }
-
-            .quick-actions {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="css/dashboard.css">
 </head>
+<style>
+    /* Dashboard.css - FashionHub Admin Dashboard */
+
+:root {
+    --primary-black: #000000;
+    --primary-gold: #D4AF37;
+    --light-beige: #F5F5DC;
+    --soft-white: #FFFFFF;
+    --text-gray: #666666;
+    --border-gray: #E5E5E5;
+    --success-green: #28A745;
+    --warning-orange: #FFA500;
+    --danger-red: #DC3545;
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.12);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    background: #F8F9FA;
+    color: var(--primary-black);
+    line-height: 1.6;
+}
+
+/* Main Content Area */
+.main-content {
+    margin-left: 280px;
+    margin-top: 70px;
+    padding: 32px;
+    transition: margin-left 0.3s ease;
+    min-height: calc(100vh - 70px);
+}
+
+.main-content.expanded {
+    margin-left: 80px;
+}
+
+/* Welcome Section */
+.welcome-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+    padding: 24px;
+    background: linear-gradient(135deg, var(--primary-black) 0%, #2d2d2d 100%);
+    border-radius: 16px;
+    color: var(--soft-white);
+    box-shadow: var(--shadow-md);
+    animation: fadeInDown 0.6s ease;
+}
+
+.welcome-text h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.welcome-text p {
+    font-size: 16px;
+    opacity: 0.9;
+}
+
+.quick-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.quick-action-btn {
+    padding: 12px 24px;
+    background: var(--primary-gold);
+    color: var(--primary-black);
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(212, 175, 55, 0.3);
+}
+
+.quick-action-btn:hover {
+    background: #C5A028;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(212, 175, 55, 0.4);
+}
+
+/* Statistics Cards */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 24px;
+    margin-bottom: 32px;
+}
+
+.stat-card {
+    background: var(--soft-white);
+    border-radius: 16px;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(20px);
+}
+
+.stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 100px;
+    height: 100px;
+    background: radial-gradient(circle, rgba(212, 175, 55, 0.1) 0%, transparent 70%);
+    border-radius: 50%;
+    transform: translate(30%, -30%);
+}
+
+.stat-card:hover {
+    transform: translateY(-8px);
+    box-shadow: var(--shadow-lg);
+}
+
+.stat-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    color: var(--soft-white);
+    flex-shrink: 0;
+}
+
+.stat-card.customers .stat-icon {
+    background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);
+}
+
+.stat-card.products .stat-icon {
+    background: linear-gradient(135deg, #F093FB 0%, #F5576C 100%);
+}
+
+.stat-card.orders .stat-icon {
+    background: linear-gradient(135deg, #4FACFE 0%, #00F2FE 100%);
+}
+
+.stat-card.revenue .stat-icon {
+    background: linear-gradient(135deg, #43E97B 0%, #38F9D7 100%);
+}
+
+.stat-content h3 {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--primary-black);
+    margin-bottom: 4px;
+}
+
+.stat-content p {
+    font-size: 14px;
+    color: var(--text-gray);
+    margin-bottom: 8px;
+}
+
+.stat-trend {
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.stat-trend.positive {
+    color: var(--success-green);
+}
+
+.stat-trend.neutral {
+    color: var(--text-gray);
+}
+
+/* Dashboard Grid */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.bottom-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 24px;
+}
+
+/* Dashboard Cards */
+.dashboard-card {
+    background: var(--soft-white);
+    border-radius: 16px;
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    transition: all 0.3s ease;
+    animation: fadeIn 0.6s ease;
+}
+
+.dashboard-card:hover {
+    box-shadow: var(--shadow-md);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 2px solid var(--border-gray);
+}
+
+.card-header h3 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--primary-black);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.card-header h3 i {
+    color: var(--primary-gold);
+}
+
+.view-all-link {
+    font-size: 14px;
+    color: var(--primary-gold);
+    text-decoration: none;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.3s ease;
+}
+
+.view-all-link:hover {
+    color: #C5A028;
+    gap: 10px;
+}
+
+.card-actions select {
+    padding: 8px 16px;
+    border: 2px solid var(--border-gray);
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--primary-black);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.card-actions select:focus {
+    outline: none;
+    border-color: var(--primary-gold);
+}
+
+.card-body {
+    padding: 24px;
+}
+
+/* Chart Card */
+.chart-card canvas {
+    max-height: 320px;
+}
+
+/* Orders List */
+.orders-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.order-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    background: var(--light-beige);
+    border-radius: 12px;
+    transition: all 0.3s ease;
+}
+
+.order-item:hover {
+    background: #ECECD6;
+    transform: translateX(4px);
+}
+
+.order-info {
+    flex: 1;
+}
+
+.order-id {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--primary-black);
+    margin-bottom: 4px;
+}
+
+.order-customer {
+    font-size: 13px;
+    color: var(--text-gray);
+    margin-bottom: 2px;
+}
+
+.order-product {
+    font-size: 13px;
+    color: var(--text-gray);
+}
+
+.order-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+}
+
+.order-status {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.order-status.pending {
+    background: #FFF3CD;
+    color: #856404;
+}
+
+.order-status.delivered {
+    background: #D4EDDA;
+    color: #155724;
+}
+
+.order-status.cancelled {
+    background: #F8D7DA;
+    color: #721C24;
+}
+
+.order-price {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary-gold);
+}
+
+/* Low Stock Alert */
+.alert-card {
+    border-left: 4px solid var(--danger-red);
+}
+
+.stock-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.stock-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    background: #FFF3F3;
+    border-radius: 12px;
+    border-left: 3px solid var(--danger-red);
+    transition: all 0.3s ease;
+}
+
+.stock-item:hover {
+    background: #FFE5E5;
+    transform: translateX(4px);
+}
+
+.stock-info {
+    flex: 1;
+}
+
+.stock-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--primary-black);
+    margin-bottom: 4px;
+}
+
+.stock-size {
+    font-size: 13px;
+    color: var(--text-gray);
+}
+
+.stock-quantity {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.stock-quantity.critical {
+    background: var(--danger-red);
+    color: var(--soft-white);
+}
+
+.stock-quantity.warning {
+    background: var(--warning-orange);
+    color: var(--soft-white);
+}
+
+/* Best Sellers */
+.bestseller-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.bestseller-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: linear-gradient(135deg, #FFF9E6 0%, #FFF3CC 100%);
+    border-radius: 12px;
+    transition: all 0.3s ease;
+}
+
+.bestseller-item:hover {
+    background: linear-gradient(135deg, #FFF3CC 0%, #FFE699 100%);
+    transform: scale(1.02);
+}
+
+.bestseller-rank {
+    width: 36px;
+    height: 36px;
+    background: var(--primary-gold);
+    color: var(--primary-black);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.bestseller-info {
+    flex: 1;
+}
+
+.bestseller-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--primary-black);
+    margin-bottom: 6px;
+}
+
+.bestseller-stats {
+    display: flex;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--text-gray);
+}
+
+.bestseller-revenue {
+    color: var(--primary-gold);
+    font-weight: 700;
+}
+
+/* Quick Stats */
+.quick-stats-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.quick-stat-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: var(--light-beige);
+    border-radius: 12px;
+    transition: all 0.3s ease;
+}
+
+.quick-stat-item:hover {
+    background: #ECECD6;
+    transform: translateX(4px);
+}
+
+.quick-stat-item i {
+    font-size: 24px;
+    color: var(--primary-gold);
+}
+
+.quick-stat-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.quick-stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--primary-black);
+}
+
+.quick-stat-label {
+    font-size: 13px;
+    color: var(--text-gray);
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-gray);
+}
+
+.empty-state i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.empty-state p {
+    font-size: 14px;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Responsive Design */
+@media (max-width: 1400px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 1024px) {
+    .bottom-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .main-content {
+        margin-left: 0;
+        padding: 20px 16px;
+    }
+
+    .welcome-section {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .quick-actions {
+        width: 100%;
+        flex-direction: column;
+    }
+
+    .quick-action-btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .dashboard-grid,
+    .bottom-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .view-all-link {
+        align-self: flex-end;
+    }
+}
+
+@media (max-width: 480px) {
+    .welcome-text h1 {
+        font-size: 22px;
+    }
+
+    .stat-content h3 {
+        font-size: 28px;
+    }
+
+    .stat-icon {
+        width: 56px;
+        height: 56px;
+        font-size: 24px;
+    }
+}
+    </style>
 <body>
     <?php include 'Components/AdminNavBar.php'; ?>
 
     <div class="main-content" id="mainContent">
-        <div class="dashboard-header">
-            <h1>Dashboard</h1>
-            <p>Welcome back, <?php echo htmlspecialchars($_SESSION['fullname']); ?>! Here's what's happening today.</p>
+        <!-- Welcome Section -->
+        <div class="welcome-section">
+            <div class="welcome-text">
+                <h1>Welcome back, <?php echo htmlspecialchars($_SESSION['fullname']); ?>! 👋</h1>
+                <p>Here's what's happening with your store today.</p>
+            </div>
+            <div class="quick-actions">
+                <a href="ManageProducts.php" class="quick-action-btn">
+                    <i class="fas fa-plus"></i> Add Product
+                </a>
+                <a href="ManageOrders.php" class="quick-action-btn">
+                    <i class="fas fa-shopping-cart"></i> View Orders
+                </a>
+            </div>
         </div>
 
         <!-- Statistics Cards -->
         <div class="stats-grid">
-            <div class="stat-card primary">
-                <div class="stat-header">
-                    <div class="stat-icon primary">
-                        <i class="fas fa-users"></i>
-                    </div>
-                    <?php if ($stats['new_users_today'] > 0): ?>
-                    <div class="stat-trend up">
-                        <i class="fas fa-arrow-up"></i>
-                        +<?php echo $stats['new_users_today']; ?> today
-                    </div>
-                    <?php endif; ?>
+            <div class="stat-card customers">
+                <div class="stat-icon">
+                    <i class="fas fa-users"></i>
                 </div>
-                <div class="stat-body">
-                    <h3><?php echo $stats['total_users']; ?></h3>
-                    <p>Total Users</p>
+                <div class="stat-content">
+                    <h3><?php echo number_format($totalCustomers); ?></h3>
+                    <p>Total Customers</p>
+                    <span class="stat-trend positive">
+                        <i class="fas fa-arrow-up"></i> 12% from last month
+                    </span>
                 </div>
             </div>
 
-            <div class="stat-card success">
-                <div class="stat-header">
-                    <div class="stat-icon success">
-                        <i class="fas fa-box"></i>
-                    </div>
-                    <?php if ($stats['low_stock'] > 0): ?>
-                    <div class="stat-trend down">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <?php echo $stats['low_stock']; ?> low
-                    </div>
-                    <?php endif; ?>
+            <div class="stat-card products">
+                <div class="stat-icon">
+                    <i class="fas fa-box"></i>
                 </div>
-                <div class="stat-body">
-                    <h3><?php echo $stats['total_products']; ?></h3>
+                <div class="stat-content">
+                    <h3><?php echo number_format($totalProducts); ?></h3>
                     <p>Total Products</p>
+                    <span class="stat-trend positive">
+                        <i class="fas fa-arrow-up"></i> 8% from last month
+                    </span>
                 </div>
             </div>
 
-            <div class="stat-card warning">
-                <div class="stat-header">
-                    <div class="stat-icon warning">
-                        <i class="fas fa-shopping-cart"></i>
-                    </div>
-                    <?php if ($stats['pending_orders'] > 0): ?>
-                    <div class="stat-trend up">
-                        <i class="fas fa-clock"></i>
-                        <?php echo $stats['pending_orders']; ?> pending
-                    </div>
-                    <?php endif; ?>
+            <div class="stat-card orders">
+                <div class="stat-icon">
+                    <i class="fas fa-shopping-bag"></i>
                 </div>
-                <div class="stat-body">
-                    <h3><?php echo $stats['total_orders']; ?></h3>
+                <div class="stat-content">
+                    <h3><?php echo number_format($totalOrders); ?></h3>
                     <p>Total Orders</p>
+                    <span class="stat-trend neutral">
+                        <i class="fas fa-minus"></i> No change
+                    </span>
                 </div>
             </div>
 
-            <div class="stat-card danger">
-                <div class="stat-header">
-                    <div class="stat-icon danger">
-                        <i class="fas fa-dollar-sign"></i>
-                    </div>
-                    <?php if ($stats['today_revenue'] > 0): ?>
-                    <div class="stat-trend up">
-                        <i class="fas fa-arrow-up"></i>
-                        $<?php echo number_format($stats['today_revenue'], 2); ?> today
-                    </div>
-                    <?php endif; ?>
+            <div class="stat-card revenue">
+                <div class="stat-icon">
+                    <i class="fas fa-dollar-sign"></i>
                 </div>
-                <div class="stat-body">
-                    <h3>Rs.<?php echo number_format($stats['total_revenue'], 2); ?></h3>
+                <div class="stat-content">
+                    <h3>$<?php echo number_format($totalRevenue, 2); ?></h3>
                     <p>Total Revenue</p>
+                    <span class="stat-trend positive">
+                        <i class="fas fa-arrow-up"></i> 23% from last month
+                    </span>
                 </div>
             </div>
         </div>
 
-        <!-- Content Grid -->
-        <div class="content-grid">
+        <!-- Charts & Tables Row -->
+        <div class="dashboard-grid">
             <!-- Sales Chart -->
-            <div class="card">
+            <div class="dashboard-card chart-card">
                 <div class="card-header">
-                    <h3><i class="fas fa-chart-line"></i> Sales Overview (Last 7 Days)</h3>
+                    <h3><i class="fas fa-chart-line"></i> Sales Overview</h3>
+                    <div class="card-actions">
+                        <select class="chart-period-select">
+                            <option value="6months">Last 6 Months</option>
+                            <option value="year">This Year</option>
+                            <option value="all">All Time</option>
+                        </select>
+                    </div>
                 </div>
-                <div class="chart-container">
+                <div class="card-body">
                     <canvas id="salesChart"></canvas>
                 </div>
             </div>
 
-            <!-- Quick Stats -->
-            <div class="card">
+            <!-- Recent Orders -->
+            <div class="dashboard-card">
                 <div class="card-header">
-                    <h3><i class="fas fa-tachometer-alt"></i> Quick Stats</h3>
+                    <h3><i class="fas fa-clock"></i> Recent Orders</h3>
+                    <a href="ManageOrders.php" class="view-all-link">View All <i class="fas fa-arrow-right"></i></a>
                 </div>
-                <div style="display: grid; gap: 15px;">
-                    <div style="padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <p style="font-size: 12px; opacity: 0.9; margin-bottom: 5px;">Categories</p>
-                                <h3 style="font-size: 24px; font-weight: 700;"><?php echo $stats['total_categories']; ?></h3>
+                <div class="card-body">
+                    <div class="orders-list">
+                        <?php if ($recentOrders->num_rows > 0): ?>
+                            <?php while ($order = $recentOrders->fetch_assoc()): 
+                                $statusClass = $order['status'] == 0 ? 'pending' : ($order['status'] == 1 ? 'delivered' : 'cancelled');
+                                $statusText = $order['status'] == 0 ? 'Pending' : ($order['status'] == 1 ? 'Delivered' : 'Cancelled');
+                            ?>
+                                <div class="order-item">
+                                    <div class="order-info">
+                                        <div class="order-id">#<?php echo str_pad($order['id'], 5, '0', STR_PAD_LEFT); ?></div>
+                                        <div class="order-customer"><?php echo htmlspecialchars($order['fullname'] ?: 'Guest'); ?></div>
+                                        <div class="order-product"><?php echo htmlspecialchars($order['product_name']); ?></div>
+                                    </div>
+                                    <div class="order-meta">
+                                        <span class="order-status <?php echo $statusClass; ?>"><?php echo $statusText; ?></span>
+                                        <span class="order-price">$<?php echo number_format($order['total_price'], 2); ?></span>
+                                    </div>
+                                </div>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <div class="empty-state">
+                                <i class="fas fa-inbox"></i>
+                                <p>No recent orders</p>
                             </div>
-                            <i class="fas fa-tags" style="font-size: 32px; opacity: 0.5;"></i>
-                        </div>
-                    </div>
-
-                    <div style="padding: 15px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 12px; color: white;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <p style="font-size: 12px; opacity: 0.9; margin-bottom: 5px;">Pending Orders</p>
-                                <h3 style="font-size: 24px; font-weight: 700;"><?php echo $stats['pending_orders']; ?></h3>
-                            </div>
-                            <i class="fas fa-clock" style="font-size: 32px; opacity: 0.5;"></i>
-                        </div>
-                    </div>
-
-                    <div style="padding: 15px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 12px; color: white;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <p style="font-size: 12px; opacity: 0.9; margin-bottom: 5px;">Unanswered Feedback</p>
-                                <h3 style="font-size: 24px; font-weight: 700;"><?php echo $stats['unanswered_feedback']; ?></h3>
-                            </div>
-                            <i class="fas fa-comments" style="font-size: 32px; opacity: 0.5;"></i>
-                        </div>
-                    </div>
-
-                    <div style="padding: 15px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 12px; color: white;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <p style="font-size: 12px; opacity: 0.9; margin-bottom: 5px;">Out of Stock</p>
-                                <h3 style="font-size: 24px; font-weight: 700;"><?php echo $stats['out_of_stock']; ?></h3>
-                            </div>
-                            <i class="fas fa-exclamation-triangle" style="font-size: 32px; opacity: 0.5;"></i>
-                        </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Recent Orders and Low Stock -->
-        <div class="content-grid">
-            <div class="card">
-                <div class="card-header">
-                    <h3><i class="fas fa-shopping-bag"></i> Recent Orders</h3>
-                    <a href="ManageOrders.php">View All <i class="fas fa-arrow-right"></i></a>
-                </div>
-                <div class="orders-table">
-                    <?php if ($recent_orders->num_rows > 0): ?>
-                        <?php while ($order = $recent_orders->fetch_assoc()): ?>
-                            <div class="order-row">
-                                <div class="order-info">
-                                    <div class="order-avatar">
-                                        <?php echo strtoupper(substr($order['fullname'], 0, 1)); ?>
-                                    </div>
-                                    <div class="order-details">
-                                        <h4><?php echo htmlspecialchars($order['fullname']); ?></h4>
-                                        <p><?php echo htmlspecialchars($order['product_name']); ?></p>
-                                    </div>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 15px;">
-                                    <span class="order-status <?php echo $order['status'] == 0 ? 'pending' : ($order['status'] == 1 ? 'completed' : 'cancelled'); ?>">
-                                        <?php echo $order['status'] == 0 ? 'Pending' : ($order['status'] == 1 ? 'Completed' : 'Cancelled'); ?>
-                                    </span>
-                                    <span class="order-price">Rs.<?php echo number_format($order['total_price'], 2); ?></span>
-                                </div>
-                            </div>
-                        <?php endwhile; ?>
-                    <?php else: ?>
-                        <div class="empty-state">
-                            <i class="fas fa-shopping-cart"></i>
-                            <p>No recent orders</p>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <div class="card">
+        <!-- Bottom Row: Low Stock & Best Sellers -->
+        <div class="bottom-grid">
+            <!-- Low Stock Alert -->
+            <div class="dashboard-card alert-card">
                 <div class="card-header">
                     <h3><i class="fas fa-exclamation-triangle"></i> Low Stock Alert</h3>
-                    <a href="ManageProducts.php">View All <i class="fas fa-arrow-right"></i></a>
                 </div>
-                <div>
-                    <?php if ($low_stock_products->num_rows > 0): ?>
-                        <?php while ($product = $low_stock_products->fetch_assoc()): ?>
-                            <div class="product-item">
-                                <div class="product-info">
-                                    <h4><?php echo htmlspecialchars($product['product_name']); ?></h4>
-                                    <p><?php echo htmlspecialchars($product['category_name']); ?></p>
+                <div class="card-body">
+                    <div class="stock-list">
+                        <?php if ($lowStockProducts->num_rows > 0): ?>
+                            <?php while ($product = $lowStockProducts->fetch_assoc()): ?>
+                                <div class="stock-item">
+                                    <div class="stock-info">
+                                        <div class="stock-name"><?php echo htmlspecialchars($product['product_name']); ?></div>
+                                        <div class="stock-size">Size: <?php echo htmlspecialchars($product['size']); ?></div>
+                                    </div>
+                                    <div class="stock-quantity <?php echo $product['quantity'] < 5 ? 'critical' : 'warning'; ?>">
+                                        <?php echo $product['quantity']; ?> left
+                                    </div>
                                 </div>
-                                <span class="stock-badge <?php echo $product['stock_quantity'] == 0 ? 'out' : 'low'; ?>">
-                                    <?php echo $product['stock_quantity']; ?> units
-                                </span>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <div class="empty-state">
+                                <i class="fas fa-check-circle"></i>
+                                <p>All products are well stocked!</p>
                             </div>
-                        <?php endwhile; ?>
-                    <?php else: ?>
-                        <div class="empty-state">
-                            <i class="fas fa-check-circle"></i>
-                            <p>All products well stocked</p>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-        </div>
-
-        <!-- Pending Orders Section -->
-        <?php if ($stats['pending_orders'] > 0): ?>
-        <div class="card" style="margin-bottom: 30px;">
-            <div class="card-header">
-                <h3><i class="fas fa-clock"></i> Pending Orders (Requires Attention)</h3>
-                <a href="ManageOrders.php?status=0">View All Pending <i class="fas fa-arrow-right"></i></a>
-            </div>
-            <div class="orders-table">
-                <?php if ($pending_orders_list->num_rows > 0): ?>
-                    <?php while ($order = $pending_orders_list->fetch_assoc()): ?>
-                        <div class="order-row">
-                            <div class="order-info">
-                                <div class="order-avatar">
-                                    <?php echo strtoupper(substr($order['fullname'], 0, 1)); ?>
-                                </div>
-                                <div class="order-details">
-                                    <h4>#<?php echo $order['id']; ?> - <?php echo htmlspecialchars($order['fullname']); ?></h4>
-                                    <p><?php echo htmlspecialchars($order['product_name']); ?> × <?php echo $order['quantity']; ?></p>
-                                </div>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 15px;">
-                                <div style="text-align: right;">
-                                    <p style="font-size: 12px; color: #999; margin-bottom: 3px;">
-                                        <?php echo date('M d, Y h:i A', strtotime($order['order_date'])); ?>
-                                    </p>
-                                    <span class="order-price">Rs.<?php echo number_format($order['total_price'], 2); ?></span>
-                                </div>
-                                <a href="ManageOrders.php?status=0" class="action-btn" style="padding: 8px 16px; margin: 0; text-decoration: none; font-size: 13px; white-space: nowrap;">
-                                    <i class="fas fa-edit"></i> Process
-                                </a>
-                            </div>
-                        </div>
-                    <?php endwhile; ?>
-                <?php else: ?>
-                    <div class="empty-state">
-                        <i class="fas fa-check-circle"></i>
-                        <p>No pending orders</p>
+                        <?php endif; ?>
                     </div>
-                <?php endif; ?>
+                </div>
             </div>
-        </div>
-        <?php endif; ?>
 
-        <!-- Quick Actions -->
-        <div class="card">
-            <div class="card-header">
-                <h3><i class="fas fa-bolt"></i> Quick Actions</h3>
+            <!-- Best Selling Products -->
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h3><i class="fas fa-trophy"></i> Best Sellers</h3>
+                </div>
+                <div class="card-body">
+                    <div class="bestseller-list">
+                        <?php if ($bestSellingProducts->num_rows > 0): ?>
+                            <?php $rank = 1; ?>
+                            <?php while ($product = $bestSellingProducts->fetch_assoc()): ?>
+                                <div class="bestseller-item">
+                                    <div class="bestseller-rank">#<?php echo $rank++; ?></div>
+                                    <div class="bestseller-info">
+                                        <div class="bestseller-name"><?php echo htmlspecialchars($product['product_name']); ?></div>
+                                        <div class="bestseller-stats">
+                                            <span><?php echo $product['total_sold']; ?> sold</span>
+                                            <span class="bestseller-revenue">$<?php echo number_format($product['revenue'], 2); ?></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <div class="empty-state">
+                                <i class="fas fa-chart-bar"></i>
+                                <p>No sales data yet</p>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
             </div>
-            <div class="quick-actions">
-                <a href="ManageProducts.php" class="action-btn">
-                    <i class="fas fa-plus-circle"></i>
-                    Add Product
-                </a>
-                <a href="ManageCategory.php" class="action-btn">
-                    <i class="fas fa-folder-plus"></i>
-                    Add Category
-                </a>
-                <a href="ManageUsers.php" class="action-btn">
-                    <i class="fas fa-user-plus"></i>
-                    Add User
-                </a>
-                <a href="ManageOrders.php" class="action-btn">
-                    <i class="fas fa-tasks"></i>
-                    Manage Orders
-                </a>
-                <a href="ManageFeedbacks.php" class="action-btn">
-                    <i class="fas fa-comment-dots"></i>
-                    View Feedback
-                </a>
+
+            <!-- Quick Stats -->
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h3><i class="fas fa-info-circle"></i> Quick Stats</h3>
+                </div>
+                <div class="card-body">
+                    <div class="quick-stats-list">
+                        <div class="quick-stat-item">
+                            <i class="fas fa-clock"></i>
+                            <div class="quick-stat-content">
+                                <span class="quick-stat-value"><?php echo $pendingOrders; ?></span>
+                                <span class="quick-stat-label">Pending Orders</span>
+                            </div>
+                        </div>
+                        <div class="quick-stat-item">
+                            <i class="fas fa-percentage"></i>
+                            <div class="quick-stat-content">
+                                <span class="quick-stat-value">
+                                    <?php echo $totalOrders > 0 ? round(($totalOrders - $pendingOrders) / $totalOrders * 100) : 0; ?>%
+                                </span>
+                                <span class="quick-stat-label">Completion Rate</span>
+                            </div>
+                        </div>
+                        <div class="quick-stat-item">
+                            <i class="fas fa-star"></i>
+                            <div class="quick-stat-content">
+                                <span class="quick-stat-value">4.8</span>
+                                <span class="quick-stat-label">Average Rating</span>
+                            </div>
+                        </div>
+                        <div class="quick-stat-item">
+                            <i class="fas fa-comments"></i>
+                            <div class="quick-stat-content">
+                                <span class="quick-stat-value">
+                                    <?php echo $conn->query("SELECT COUNT(*) as count FROM feedback WHERE admin_reply IS NULL")->fetch_assoc()['count']; ?>
+                                </span>
+                                <span class="quick-stat-label">Pending Feedback</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        // Sales Chart
-        const ctx = document.getElementById('salesChart').getContext('2d');
-        const salesData = <?php echo json_encode($sales_data); ?>;
+        // Sales Chart Data from PHP
+        const salesData = <?php echo json_encode($salesData); ?>;
         
-        new Chart(ctx, {
+        // Extract labels and data
+        const chartLabels = salesData.map(item => {
+            const date = new Date(item.month + '-01');
+            return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        });
+        const chartRevenue = salesData.map(item => parseFloat(item.revenue));
+        const chartOrders = salesData.map(item => parseInt(item.orders));
+
+        // Create Sales Chart
+        const ctx = document.getElementById('salesChart').getContext('2d');
+        const salesChart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: salesData.map(d => d.date),
-                datasets: [{
-                    label: 'Sales (Rs.)',
-                    data: salesData.map(d => d.sales),
-                    borderColor: 'rgb(102, 126, 234)',
-                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                    tension: 0.4,
-                    fill: true,
-                    pointRadius: 5,
-                    pointHoverRadius: 7,
-                    pointBackgroundColor: 'rgb(102, 126, 234)',
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2
-                }]
+                labels: chartLabels,
+                datasets: [
+                    {
+                        label: 'Revenue ($)',
+                        data: chartRevenue,
+                        borderColor: '#D4AF37',
+                        backgroundColor: 'rgba(212, 175, 55, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 5,
+                        pointBackgroundColor: '#D4AF37',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        pointHoverRadius: 7
+                    },
+                    {
+                        label: 'Orders',
+                        data: chartOrders,
+                        borderColor: '#000',
+                        backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 4,
+                        pointBackgroundColor: '#000',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        pointHoverRadius: 6
+                    }
+                ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        display: false
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 20,
+                            font: {
+                                size: 13,
+                                weight: '600'
+                            }
+                        }
                     },
                     tooltip: {
+                        mode: 'index',
+                        intersect: false,
                         backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        padding: 12,
                         titleFont: {
-                            size: 14
+                            size: 14,
+                            weight: 'bold'
                         },
                         bodyFont: {
-                            size: 14
+                            size: 13
                         },
+                        padding: 12,
+                        cornerRadius: 8,
                         callbacks: {
                             label: function(context) {
-                                return 'Sales: Rs.' + context.parsed.y.toFixed(2);
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.dataset.label === 'Revenue ($)') {
+                                    label += '$' + context.parsed.y.toFixed(2);
+                                } else {
+                                    label += context.parsed.y;
+                                }
+                                return label;
                             }
                         }
                     }
@@ -875,22 +1043,47 @@ for ($i = 6; $i >= 0; $i--) {
                 scales: {
                     y: {
                         beginAtZero: true,
-                        ticks: {
-                            callback: function(value) {
-                                return 'Rs.' + value;
-                            }
-                        },
                         grid: {
+                            drawBorder: false,
                             color: 'rgba(0, 0, 0, 0.05)'
+                        },
+                        ticks: {
+                            font: {
+                                size: 12
+                            },
+                            callback: function(value) {
+                                return '$' + value;
+                            }
                         }
                     },
                     x: {
                         grid: {
                             display: false
+                        },
+                        ticks: {
+                            font: {
+                                size: 12
+                            }
                         }
                     }
+                },
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false
                 }
             }
+        });
+
+        // Animate stats on load
+        document.addEventListener('DOMContentLoaded', function() {
+            const statCards = document.querySelectorAll('.stat-card');
+            statCards.forEach((card, index) => {
+                setTimeout(() => {
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
         });
     </script>
 </body>

@@ -27,8 +27,11 @@ if ($customers_result) {
     $stats['customers'] = $customers_data['total'];
 }
 
-// Get total products count
-$products_query = "SELECT COUNT(*) as total FROM products WHERE stock_quantity > 0";
+// Get total products count (products that have at least one size with stock)
+$products_query = "SELECT COUNT(DISTINCT p.id) as total 
+                   FROM products p 
+                   INNER JOIN product_sizes ps ON p.id = ps.product_id 
+                   WHERE ps.quantity > 0";
 $products_result = $conn->query($products_query);
 if ($products_result) {
     $products_data = $products_result->fetch_assoc();
