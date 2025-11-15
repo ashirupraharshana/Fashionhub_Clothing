@@ -16,7 +16,6 @@ $user_id = $_SESSION['user_id'];
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_order'])) {
     $order_id = intval($_POST['order_id']);
     
-
     $order_query = "SELECT * FROM orders WHERE id = ? AND user_id = ?";
     $stmt = $conn->prepare($order_query);
     $stmt->bind_param("ii", $order_id, $user_id);
@@ -26,17 +25,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_order'])) {
     if ($order_result->num_rows > 0) {
         $order = $order_result->fetch_assoc();
         $quantity = $order['quantity'];
+        $product_id = $order['product_id'];
+        $size = $order['size'];
         
         // Start transaction
         $conn->begin_transaction();
         
         try {
-            // Restore stock to product_sizes (current structure only uses size_id)
-            if (isset($order['size_id']) && !empty($order['size_id'])) {
-                $update_stock = "UPDATE product_sizes SET quantity = quantity + ? WHERE id = ?";
+            // Restore stock to product_sizes using product_id and size
+            if (!empty($product_id) && !empty($size)) {
+                $update_stock = "UPDATE product_sizes 
+                                SET quantity = quantity + ?, 
+                                    updated_at = NOW() 
+                                WHERE product_id = ? AND size = ?";
                 $stmt = $conn->prepare($update_stock);
-                $stmt->bind_param("ii", $quantity, $order['size_id']);
+                $stmt->bind_param("iis", $quantity, $product_id, $size);
                 $stmt->execute();
+                
+                // Check if stock was actually updated
+                if ($stmt->affected_rows === 0) {
+                    throw new Exception("Could not restore stock - size not found in inventory");
+                }
+            } else {
+                throw new Exception("Invalid product or size information");
             }
             
             // Delete the order
@@ -48,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_order'])) {
             // Commit transaction
             $conn->commit();
             
-            $_SESSION['message'] = "Order deleted successfully and stock restored!";
+            $_SESSION['message'] = "Order deleted successfully and stock of $quantity unit(s) restored!";
             $_SESSION['message_type'] = "success";
         } catch (Exception $e) {
             // Rollback on error
@@ -60,7 +71,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_order'])) {
         $_SESSION['message'] = "Order not found or you don't have permission to delete it.";
         $_SESSION['message_type'] = "error";
     }
-    
     
     header("Location: CustomerOrders.php");
     exit;
@@ -97,18 +107,6 @@ $query = "SELECT o.*,
 
 $result = $conn->query($query);
 
-
-if ($result && $result->num_rows > 0) {
-    $result->data_seek(0);
-    $debug_row = $result->fetch_assoc();
-    echo "<!-- DEBUG: ";
-    echo "has_size_id: " . ($has_size_id ? 'YES' : 'NO') . " | ";
-    echo "size value: " . ($debug_row['size'] ?? 'NULL') . " | ";
-    echo "size_id_ref: " . ($debug_row['size_id_ref'] ?? 'NULL') . " | ";
-    echo "Query: " . $query;
-    echo " -->";
-    $result->data_seek(0);
-}
 // Get order statistics for this customer
 $stats_query = "SELECT 
     COUNT(*) as total_orders,
@@ -1131,6 +1129,8 @@ $status_labels = [
         </div>
     </div>
 
+     <?php include 'Components/Footer.php'; ?>
+
     <script>
         const statusLabels = <?php echo json_encode($status_labels); ?>;
 
@@ -1306,6 +1306,6 @@ $status_labels = [
             });
         }, 5000);
     </script>
-    <?php include 'Components/Footer.php'; ?>
+   
 </body>
 </html>
