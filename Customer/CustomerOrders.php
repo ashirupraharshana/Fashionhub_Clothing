@@ -171,46 +171,6 @@ $status_labels = [
             font-size: 16px;
             color: #7f8c8d;
         }
-
-        /* Alert Messages */
-        .alert {
-            padding: 16px 20px;
-            border-radius: 8px;
-            margin-bottom: 30px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-weight: 600;
-            animation: slideDown 0.3s ease;
-        }
-
-        .alert.success {
-            background: #d4edda;
-            color: #155724;
-            border-left: 4px solid #27ae60;
-        }
-
-        .alert.error {
-            background: #f8d7da;
-            color: #721c24;
-            border-left: 4px solid #e74c3c;
-        }
-
-        .alert i {
-            font-size: 20px;
-        }
-
-        @keyframes slideDown {
-            from {
-                opacity: 0;
-                transform: translateY(-20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
         /* Statistics Cards */
         .stats-grid {
             display: grid;
@@ -846,21 +806,128 @@ $status_labels = [
                 grid-template-columns: 1fr;
             }
         }
+
+
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            top: 100px;
+            right: -400px;
+            background: var(--primary-white, #ffffff);
+            padding: 20px 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            min-width: 350px;
+            max-width: 500px;
+            transition: right 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        .toast.show {
+            right: 20px;
+        }
+
+        .toast.success {
+            border-left: 5px solid #27ae60;
+        }
+
+        .toast.error {
+            border-left: 5px solid #e74c3c;
+        }
+
+        .toast-icon {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .toast.success .toast-icon {
+            background: rgba(39, 174, 96, 0.1);
+            color: #27ae60;
+        }
+
+        .toast.error .toast-icon {
+            background: rgba(231, 76, 60, 0.1);
+            color: #e74c3c;
+        }
+
+        .toast-content {
+            flex: 1;
+        }
+
+        .toast-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            font-size: 15px;
+            color: #2c3e50;
+        }
+
+        .toast-message {
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+
+        .toast-close {
+            background: transparent;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #7f8c8d;
+            transition: all 0.3s;
+            padding: 5px;
+        }
+
+        .toast-close:hover {
+            color: #2c3e50;
+            transform: rotate(90deg);
+        }
+
+        @media (max-width: 768px) {
+            .toast {
+                right: -100%;
+                left: 10px;
+                min-width: auto;
+                max-width: calc(100% - 20px);
+            }
+
+            .toast.show {
+                right: auto;
+                left: 10px;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="page-container">
-        <!-- Alert Messages -->
-        <?php if (isset($_SESSION['message'])): ?>
-            <div class="alert <?php echo $_SESSION['message_type']; ?>">
-                <i class="fas fa-<?php echo $_SESSION['message_type'] == 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i>
-                <span><?php echo $_SESSION['message']; ?></span>
-            </div>
-            <?php 
-                unset($_SESSION['message']);
-                unset($_SESSION['message_type']);
-            ?>
-        <?php endif; ?>
+       <?php if (isset($_SESSION['message']) && isset($_SESSION['message_type'])): ?>
+    <?php 
+        // Store values before unsetting
+        $toast_message = $_SESSION['message'];
+        $toast_type = $_SESSION['message_type'];
+        
+        // Unset immediately after storing
+        unset($_SESSION['message']);
+        unset($_SESSION['message_type']);
+    ?>
+    <div class="toast <?php echo htmlspecialchars($toast_type); ?>">
+        <div class="toast-icon">
+            <i class="fas fa-<?php echo $toast_type === 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i>
+        </div>
+        <div class="toast-content">
+            <div class="toast-title"><?php echo $toast_type === 'success' ? 'Success!' : 'Error!'; ?></div>
+            <div class="toast-message"><?php echo htmlspecialchars($toast_message); ?></div>
+        </div>
+        <button class="toast-close">&times;</button>
+    </div>
+<?php endif; ?>
 
         <!-- Statistics Cards -->
         <div class="stats-grid">
@@ -1296,15 +1363,28 @@ $status_labels = [
             }
         });
 
-        // Auto-hide alerts after 5 seconds
-        setTimeout(() => {
-            const alerts = document.querySelectorAll('.alert');
-            alerts.forEach(alert => {
-                alert.style.transition = 'opacity 0.3s ease';
-                alert.style.opacity = '0';
-                setTimeout(() => alert.remove(), 300);
-            });
-        }, 5000);
+// Toast Notification
+        const toast = document.querySelector('.toast');
+        if (toast) {
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 100);
+
+            const closeBtn = toast.querySelector('.toast-close');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', function() {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 500);
+                });
+            }
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (toast.parentElement) toast.remove();
+                }, 500);
+            }, 5000);
+        }
     </script>
    
 </body>

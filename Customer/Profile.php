@@ -133,48 +133,6 @@ $user_avatar = 'https://static.vecteezy.com/system/resources/previews/009/749/75
             margin: 0 auto;
             padding: 40px 20px;
         }
-
-
-
-        /* Alert Messages */
-        .alert {
-            padding: 16px 24px;
-            border-radius: 12px;
-            margin-bottom: 30px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-weight: 600;
-            animation: slideDown 0.3s ease;
-        }
-
-        .alert.success {
-            background: #d4edda;
-            color: #155724;
-            border-left: 4px solid #27ae60;
-        }
-
-        .alert.error {
-            background: #f8d7da;
-            color: #721c24;
-            border-left: 4px solid #e74c3c;
-        }
-
-        .alert i {
-            font-size: 20px;
-        }
-
-        @keyframes slideDown {
-            from {
-                opacity: 0;
-                transform: translateY(-20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
         /* Grid Layout */
         .profile-grid {
             display: grid;
@@ -412,6 +370,102 @@ $user_avatar = 'https://static.vecteezy.com/system/resources/previews/009/749/75
                 grid-template-columns: 1fr;
             }
         }
+
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            top: 100px;
+            right: -400px;
+            background: white;
+            padding: 20px 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            min-width: 350px;
+            max-width: 500px;
+            transition: right 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        .toast.show {
+            right: 20px;
+        }
+
+        .toast.success {
+            border-left: 5px solid #27ae60;
+        }
+
+        .toast.error {
+            border-left: 5px solid #e74c3c;
+        }
+
+        .toast-icon {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .toast.success .toast-icon {
+            background: rgba(39, 174, 96, 0.1);
+            color: #27ae60;
+        }
+
+        .toast.error .toast-icon {
+            background: rgba(231, 76, 60, 0.1);
+            color: #e74c3c;
+        }
+
+        .toast-content {
+            flex: 1;
+        }
+
+        .toast-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            font-size: 15px;
+            color: #2c3e50;
+        }
+
+        .toast-message {
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+
+        .toast-close {
+            background: transparent;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #7f8c8d;
+            transition: all 0.3s;
+            padding: 5px;
+        }
+
+        .toast-close:hover {
+            color: #2c3e50;
+            transform: rotate(90deg);
+        }
+
+        @media (max-width: 768px) {
+            .toast {
+                right: -100%;
+                left: 10px;
+                min-width: auto;
+                max-width: calc(100% - 20px);
+            }
+
+            .toast.show {
+                right: auto;
+                left: 10px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -420,10 +474,16 @@ $user_avatar = 'https://static.vecteezy.com/system/resources/previews/009/749/75
     <div class="container">
        
 
-        <?php if (!empty($profile_message)): ?>
-            <div class="alert <?php echo $profile_messageType; ?>">
-                <i class="fas fa-<?php echo $profile_messageType === 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i>
-                <span><?php echo htmlspecialchars($profile_message); ?></span>
+       <?php if (!empty($profile_message)): ?>
+            <div class="toast <?php echo $profile_messageType; ?>">
+                <div class="toast-icon">
+                    <i class="fas fa-<?php echo $profile_messageType === 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i>
+                </div>
+                <div class="toast-content">
+                    <div class="toast-title"><?php echo $profile_messageType === 'success' ? 'Success!' : 'Error!'; ?></div>
+                    <div class="toast-message"><?php echo htmlspecialchars($profile_message); ?></div>
+                </div>
+                <button class="toast-close">&times;</button>
             </div>
         <?php endif; ?>
 
@@ -583,12 +643,26 @@ $user_avatar = 'https://static.vecteezy.com/system/resources/previews/009/749/75
             });
         });
 
-        // Auto-hide alert after 5 seconds
-        const alert = document.querySelector('.alert');
-        if (alert) {
+        // Toast Notification Handler
+        const toast = document.querySelector('.toast');
+        if (toast) {
             setTimeout(() => {
-                alert.style.animation = 'slideDown 0.3s ease reverse';
-                setTimeout(() => alert.remove(), 300);
+                toast.classList.add('show');
+            }, 100);
+
+            const closeBtn = toast.querySelector('.toast-close');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', function() {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 500);
+                });
+            }
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (toast.parentElement) toast.remove();
+                }, 500);
             }, 5000);
         }
     </script>

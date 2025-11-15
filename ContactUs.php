@@ -128,50 +128,6 @@ $form_message = isset($_POST['message']) ? htmlspecialchars($_POST['message']) :
             line-height: 1.8;
         }
 
-        /* Alert Messages */
-        .alert {
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 18px 30px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            font-weight: 600;
-            animation: slideDown 0.4s ease;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            z-index: 9999;
-            max-width: 500px;
-        }
-
-        .alert.success {
-            background: white;
-            color: #27ae60;
-            border-left: 5px solid #27ae60;
-        }
-
-        .alert.error {
-            background: white;
-            color: #e74c3c;
-            border-left: 5px solid #e74c3c;
-        }
-
-        .alert i {
-            font-size: 24px;
-        }
-
-        @keyframes slideDown {
-            from {
-                opacity: 0;
-                transform: translate(-50%, -30px);
-            }
-            to {
-                opacity: 1;
-                transform: translate(-50%, 0);
-            }
-        }
 
         /* Main Container */
         .container {
@@ -655,14 +611,116 @@ $form_message = isset($_POST['message']) ? htmlspecialchars($_POST['message']) :
             opacity: 1;
             transform: translateY(0);
         }
+
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            top: 80px;
+            right: -400px;
+            background: white;
+            padding: 20px 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            min-width: 350px;
+            max-width: 500px;
+            transition: right 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        .toast.show {
+            right: 20px;
+        }
+
+        .toast.success {
+            border-left: 5px solid #27ae60;
+        }
+
+        .toast.error {
+            border-left: 5px solid #e74c3c;
+        }
+
+        .toast-icon {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .toast.success .toast-icon {
+            background: rgba(39, 174, 96, 0.1);
+            color: #27ae60;
+        }
+
+        .toast.error .toast-icon {
+            background: rgba(231, 76, 60, 0.1);
+            color: #e74c3c;
+        }
+
+        .toast-content {
+            flex: 1;
+        }
+
+        .toast-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            font-size: 15px;
+            color: #2c3e50;
+        }
+
+        .toast-message {
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+
+        .toast-close {
+            background: transparent;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #7f8c8d;
+            transition: all 0.3s;
+            padding: 5px;
+        }
+
+        .toast-close:hover {
+            color: #2c3e50;
+            transform: rotate(90deg);
+        }
+
+        @media (max-width: 768px) {
+            .toast {
+                right: -100%;
+                left: 10px;
+                min-width: auto;
+                max-width: calc(100% - 20px);
+            }
+
+            .toast.show {
+                right: auto;
+                left: 10px;
+            }
+        }
     </style>
 </head>
 <body>
-    <!-- Alert Messages -->
+   <!-- Toast Notification -->
     <?php if (!empty($message)): ?>
-        <div class="alert <?php echo $message_type; ?>">
-            <i class="fas fa-<?php echo $message_type == 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i>
-            <span><?php echo $message; ?></span>
+        <div class="toast <?php echo $message_type; ?>">
+            <div class="toast-icon">
+                <i class="fas fa-<?php echo $message_type == 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i>
+            </div>
+            <div class="toast-content">
+                <div class="toast-title"><?php echo $message_type == 'success' ? 'Success!' : 'Error!'; ?></div>
+                <div class="toast-message"><?php echo $message; ?></div>
+            </div>
+            <button class="toast-close">&times;</button>
         </div>
     <?php endif; ?>
 
@@ -964,15 +1022,26 @@ $form_message = isset($_POST['message']) ? htmlspecialchars($_POST['message']) :
             });
         });
 
-        // Auto-hide alert after 5 seconds
-        const contactAlertMessage = document.querySelector('.alert');
-        if (contactAlertMessage) {
+        // Toast Notification Handler
+        const toast = document.querySelector('.toast');
+        if (toast) {
             setTimeout(() => {
-                contactAlertMessage.style.opacity = '0';
-                contactAlertMessage.style.transform = 'translate(-50%, -20px)';
+                toast.classList.add('show');
+            }, 100);
+
+            const closeBtn = toast.querySelector('.toast-close');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', function() {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 500);
+                });
+            }
+
+            setTimeout(() => {
+                toast.classList.remove('show');
                 setTimeout(() => {
-                    contactAlertMessage.style.display = 'none';
-                }, 300);
+                    if (toast.parentElement) toast.remove();
+                }, 500);
             }, 5000);
         }
 

@@ -10,7 +10,7 @@ if (!isset($_SESSION['user_id'])) {
 
 // Check if product_id is provided
 if (!isset($_GET['product_id']) || empty($_GET['product_id'])) {
-    header("Location: Products.php");
+    header("Location: CustomerOrders.php");
     exit;
 }
 
@@ -29,7 +29,7 @@ $stmt->execute();
 $product_result = $stmt->get_result();
 
 if ($product_result->num_rows === 0) {
-    header("Location: Products.php");
+    header("Location: CustomerOrders.php");
     exit;
 }
 
@@ -250,7 +250,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             $stmt->bind_param("ii", $quantity, $selected_size_id);
             $stmt->execute();
             
-            $success = "Order placed successfully! Order ID: #" . $conn->insert_id;
+            $success = "Order placed successfully!";
             
             // Redirect to products page after 2 seconds
             header("refresh:2;url=OrderNow.php");
@@ -299,37 +299,86 @@ if ($product['gender'] == 0) {
             margin: 40px auto;
             padding: 0 30px;
         }
-.alert {
-    position: fixed;
-    top: 80px;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 18px 24px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    font-weight: 600;
-    animation: slideInDown 0.5s ease;
-    z-index: 10000; /* Higher than navbar */
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    transition: opacity 0.3s, transform 0.3s;
-}
-
-        .alert-success {
-            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
-            color: #155724;
-            border: 2px solid #28a745;
+            /* Toast Notification */
+        .toast {
+            position: fixed;
+            top: 100px;
+            right: -400px;
+            background: white;
+            padding: 20px 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            min-width: 350px;
+            max-width: 500px;
+            transition: right 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
         }
 
-        .alert-error {
-            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
-            color: #721c24;
-            border: 2px solid #dc3545;
+        .toast.show {
+            right: 20px;
         }
 
-        .alert i {
-            font-size: 22px;
+        .toast.success {
+            border-left: 5px solid #27ae60;
+        }
+
+        .toast.error {
+            border-left: 5px solid #e74c3c;
+        }
+
+        .toast-icon {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .toast.success .toast-icon {
+            background: rgba(39, 174, 96, 0.1);
+            color: #27ae60;
+        }
+
+        .toast.error .toast-icon {
+            background: rgba(231, 76, 60, 0.1);
+            color: #e74c3c;
+        }
+
+        .toast-content {
+            flex: 1;
+        }
+
+        .toast-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            font-size: 15px;
+            color: #2c3e50;
+        }
+
+        .toast-message {
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+
+        .toast-close {
+            background: transparent;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #7f8c8d;
+            transition: all 0.3s;
+            padding: 5px;
+        }
+
+        .toast-close:hover {
+            color: #2c3e50;
+            transform: rotate(90deg);
         }
 
         .order-content {
@@ -897,16 +946,28 @@ if ($product['gender'] == 0) {
     <div class="order-container">
 
 <?php if (isset($success) && !isset($_POST['add_to_cart'])): ?>
-    <div class="alert alert-success">
-        <i class="fas fa-check-circle"></i>
-        <span><?php echo $success; ?></span>
+    <div class="toast success">
+        <div class="toast-icon">
+            <i class="fas fa-check-circle"></i>
+        </div>
+        <div class="toast-content">
+            <div class="toast-title">Success!</div>
+            <div class="toast-message"><?php echo $success; ?></div>
+        </div>
+        <button class="toast-close">&times;</button>
     </div>
 <?php endif; ?>
 
 <?php if (isset($error) && !isset($_POST['add_to_cart'])): ?>
-    <div class="alert alert-error">
-        <i class="fas fa-exclamation-circle"></i>
-        <span><?php echo $error; ?></span>
+    <div class="toast error">
+        <div class="toast-icon">
+            <i class="fas fa-exclamation-circle"></i>
+        </div>
+        <div class="toast-content">
+            <div class="toast-title">Error!</div>
+            <div class="toast-message"><?php echo $error; ?></div>
+        </div>
+        <button class="toast-close">&times;</button>
     </div>
 <?php endif; ?>
 
@@ -1072,7 +1133,7 @@ if ($product['gender'] == 0) {
             </div>
         </div>
     </div>
-
+<?php include 'Components/Footer.php'; ?>
     <script>
         let currentImageIndex = 0;
         let currentPhotos = [];
@@ -1378,28 +1439,77 @@ if ($product['gender'] == 0) {
 });
 
 function showAlert(message, type) {
-    // Remove any existing alerts first
-    const existingAlerts = document.querySelectorAll('.alert');
-    existingAlerts.forEach(alert => alert.remove());
+    // Remove any existing toasts first
+    const existingToasts = document.querySelectorAll('.toast');
+    existingToasts.forEach(toast => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 500);
+    });
     
-    const alert = document.createElement('div');
-    alert.className = `alert alert-${type}`;
-    alert.innerHTML = `
-        <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
-        <span>${message}</span>
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+        <div class="toast-icon">
+            <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+        </div>
+        <div class="toast-content">
+            <div class="toast-title">${type === 'success' ? 'Success!' : 'Error!'}</div>
+            <div class="toast-message">${message}</div>
+        </div>
+        <button class="toast-close">&times;</button>
     `;
     
-
-    document.body.insertBefore(alert, document.body.firstChild);
+    document.body.appendChild(toast);
     
-
+    // Add close button functionality
+    const closeBtn = toast.querySelector('.toast-close');
+    closeBtn.addEventListener('click', function() {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 500);
+    });
+    
+    // Show toast with animation
     setTimeout(() => {
-        alert.style.opacity = '0';
-        alert.style.transform = 'translate(-50%, -20px)';
-        setTimeout(() => alert.remove(), 300);
-    }, 3000);
+        toast.classList.add('show');
+    }, 100);
+    
+    // Auto hide after 5 seconds
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            if (toast.parentElement) toast.remove();
+        }, 500);
+    }, 5000);
 }
+
     </script>
-    <?php include 'Components/Footer.php'; ?>
+
+    <script>
+        // Handle toast notifications on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const toast = document.querySelector('.toast');
+            if (toast) {
+                setTimeout(() => {
+                    toast.classList.add('show');
+                }, 100);
+
+                const closeBtn = toast.querySelector('.toast-close');
+                if (closeBtn) {
+                    closeBtn.addEventListener('click', function() {
+                        toast.classList.remove('show');
+                        setTimeout(() => toast.remove(), 500);
+                    });
+                }
+
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    setTimeout(() => {
+                        if (toast.parentElement) toast.remove();
+                    }, 500);
+                }, 5000);
+            }
+        });
+    </script>
+    
 </body>
 </html>

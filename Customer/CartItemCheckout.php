@@ -218,7 +218,7 @@ foreach ($cart_items as $item) {
             $success = "Orders placed successfully! Redirecting...";
             
             // Redirect to orders page after 2 seconds
-            header("refresh:2;url=/fashionhub/Customer/CustomerOrders.php.php");
+            header("refresh:2;url=/fashionhub/Customer/CustomerOrders.php");
             
         } catch (Exception $e) {
             // Rollback transaction on error
@@ -290,33 +290,6 @@ foreach ($cart_items as $item) {
             max-width: 1300px;
             margin: 40px auto;
             padding: 0 20px;
-        }
-
-        .alert {
-            padding: 18px 24px;
-            border-radius: 12px;
-            margin-bottom: 25px;
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            font-weight: 700;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        }
-
-        .alert-success {
-            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
-            color: #155724;
-            border-left: 5px solid #27ae60;
-        }
-
-        .alert-error {
-            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
-            color: #721c24;
-            border-left: 5px solid #e74c3c;
-        }
-
-        .alert i {
-            font-size: 22px;
         }
 
         .checkout-grid {
@@ -540,23 +513,131 @@ foreach ($cart_items as $item) {
                 order: -1;
             }
         }
+
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            top: 100px;
+            right: -400px;
+            background: white;
+            padding: 20px 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            min-width: 350px;
+            max-width: 500px;
+            transition: right 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        .toast.show {
+            right: 20px;
+        }
+
+        .toast.success {
+            border-left: 5px solid #27ae60;
+        }
+
+        .toast.error {
+            border-left: 5px solid #e74c3c;
+        }
+
+        .toast-icon {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .toast.success .toast-icon {
+            background: rgba(39, 174, 96, 0.1);
+            color: #27ae60;
+        }
+
+        .toast.error .toast-icon {
+            background: rgba(231, 76, 60, 0.1);
+            color: #e74c3c;
+        }
+
+        .toast-content {
+            flex: 1;
+        }
+
+        .toast-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            font-size: 15px;
+            color: #2c3e50;
+        }
+
+        .toast-message {
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+
+        .toast-close {
+            background: transparent;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #7f8c8d;
+            transition: all 0.3s;
+            padding: 5px;
+        }
+
+        .toast-close:hover {
+            color: #2c3e50;
+            transform: rotate(90deg);
+        }
+
+        @media (max-width: 768px) {
+            .toast {
+                right: -100%;
+                left: 10px;
+                min-width: auto;
+                max-width: calc(100% - 20px);
+            }
+
+            .toast.show {
+                right: auto;
+                left: 10px;
+            }
+        }
     </style>
 </head>
 <body>
     <?php include 'Components/CustomerNavBar.php'; ?>
     <div class="checkout-container">
 
-        <?php if (isset($success)): ?>
-            <div class="alert alert-success">
-                <i class="fas fa-check-circle"></i>
-                <span><?php echo $success; ?></span>
+       <?php if (isset($success)): ?>
+            <div class="toast success">
+                <div class="toast-icon">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="toast-content">
+                    <div class="toast-title">Success!</div>
+                    <div class="toast-message"><?php echo $success; ?></div>
+                </div>
+                <button class="toast-close">&times;</button>
             </div>
         <?php endif; ?>
 
         <?php if (isset($error)): ?>
-            <div class="alert alert-error">
-                <i class="fas fa-exclamation-circle"></i>
-                <span><?php echo $error; ?></span>
+            <div class="toast error">
+                <div class="toast-icon">
+                    <i class="fas fa-exclamation-circle"></i>
+                </div>
+                <div class="toast-content">
+                    <div class="toast-title">Error!</div>
+                    <div class="toast-message"><?php echo $error; ?></div>
+                </div>
+                <button class="toast-close">&times;</button>
             </div>
         <?php endif; ?>
 
@@ -671,6 +752,29 @@ foreach ($cart_items as $item) {
                 return false;
             }
         });
+
+        // Toast Notification Handler
+        const toast = document.querySelector('.toast');
+        if (toast) {
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 100);
+
+            const closeBtn = toast.querySelector('.toast-close');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', function() {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 500);
+                });
+            }
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (toast.parentElement) toast.remove();
+                }, 500);
+            }, 5000);
+        }
     </script>
     <?php include 'Components/Footer.php'; ?>
 </body>
