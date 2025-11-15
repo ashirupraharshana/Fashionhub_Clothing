@@ -1,4 +1,3 @@
-<!-- AdminNavbar.php -->
 <?php
 // Get current page name for active menu highlighting
 $current_page = basename($_SERVER['PHP_SELF']);
@@ -15,11 +14,40 @@ if (!isset($conn)) {
     }
 }
 
-// Fetch admin details from session
-$admin_name = isset($_SESSION['fullname']) ? $_SESSION['fullname'] : 'Admin User';
-$admin_email = isset($_SESSION['email']) ? $_SESSION['email'] : '';
-$admin_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : 0;
-$admin_phone = isset($_SESSION['phone']) ? $_SESSION['phone'] : '';
+// Initialize admin details
+$admin_name = 'Admin User';
+$admin_email = '';
+$admin_phone = '';
+$admin_id = 0;
+
+// Get admin ID from session
+if (isset($_SESSION['user_id'])) {
+    $admin_id = $_SESSION['user_id'];
+}
+
+// Fetch admin details from database
+if (isset($conn) && $admin_id > 0) {
+    $admin_query = $conn->prepare("SELECT fullname, email, phone FROM users WHERE id = ?");
+    
+    if ($admin_query) {
+        $admin_query->bind_param("i", $admin_id);
+        $admin_query->execute();
+        $admin_result = $admin_query->get_result();
+        
+        if ($admin_result && $admin_result->num_rows > 0) {
+            $admin_data = $admin_result->fetch_assoc();
+            $admin_name = $admin_data['fullname'] ?? 'Admin User';
+            $admin_email = $admin_data['email'] ?? '';
+            $admin_phone = $admin_data['phone'] ?? '';
+        }
+        $admin_query->close();
+    }
+} else {
+    // Fallback to session data if database fetch fails
+    $admin_name = isset($_SESSION['fullname']) ? $_SESSION['fullname'] : 'Admin User';
+    $admin_email = isset($_SESSION['email']) ? $_SESSION['email'] : '';
+    $admin_phone = isset($_SESSION['phone']) ? $_SESSION['phone'] : '';
+}
 
 // Get current time for greeting
 $current_hour = date('G');
@@ -911,8 +939,8 @@ $total_notifications = $pending_orders + $unanswered_feedback;
                 </div>
 
                 <div class="profile-form-group">
-                    <label>Phone Number</label>
-                    <input type="tel" name="phone" id="profile_phone" value="<?php echo htmlspecialchars($admin_phone); ?>">
+                   <label>Phone Number</label>
+                     <input type="tel" name="phone" id="profile_phone" value="<?php echo htmlspecialchars($admin_phone); ?>">
                 </div>
 
                 <div class="profile-form-group">
