@@ -253,7 +253,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             $success = "Order placed successfully! Order ID: #" . $conn->insert_id;
             
             // Redirect to products page after 2 seconds
-            header("refresh:2;url=Products.php");
+            header("refresh:2;url=OrderNow.php");
         } else {
             $error = "Failed to place order. Please try again.";
         }
@@ -567,11 +567,23 @@ if ($product['gender'] == 0) {
             box-shadow: 0 8px 25px rgba(231, 76, 60, 0.3);
         }
 
-        .size-card.out-of-stock {
-            opacity: 0.5;
-            cursor: not-allowed;
-            background: #f8f9fa;
-        }
+            .size-card.out-of-stock {
+    opacity: 0.7;
+    cursor: pointer;
+    background: #f8f9fa;
+    border-color: #dee2e6;
+}
+
+.size-card.out-of-stock:hover {
+    border-color: #adb5bd;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.size-card.out-of-stock.selected {
+    border-color: #dc3545;
+    background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
+}
 
         .size-card.out-of-stock::before {
             content: 'OUT OF STOCK';
@@ -769,6 +781,11 @@ if ($product['gender'] == 0) {
             border-color: #28a745;
             color: #155724;
         }
+        .size-selection-status.out-of-stock {
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+    border-color: #dc3545;
+    color: #721c24;
+}
 
         .order-summary {
             background: linear-gradient(135deg, #f8f9fa 0%, #e8eef3 100%);
@@ -963,15 +980,15 @@ if ($product['gender'] == 0) {
                             $is_out_of_stock = $size['quantity'] == 0;
                             $final_price = $size['price'] - ($size['price'] * $size['discount'] / 100);
                             ?>
-                            <div class="size-card <?php echo $is_out_of_stock ? 'out-of-stock' : ''; ?> <?php echo $index === 0 && !$is_out_of_stock ? 'selected' : ''; ?>" 
-                                 data-size-id="<?php echo $size['id']; ?>"
-                                 data-size="<?php echo htmlspecialchars($size['size']); ?>"
-                                 data-price="<?php echo $final_price; ?>"
-                                 data-original-price="<?php echo $size['price']; ?>"
-                                 data-discount="<?php echo $size['discount']; ?>"
-                                 data-max-qty="<?php echo $size['quantity']; ?>"
-                                 data-photos='<?php echo json_encode($size['photos']); ?>'
-                                 onclick="<?php echo !$is_out_of_stock ? 'selectSize(this)' : ''; ?>">
+                        <div class="size-card <?php echo $is_out_of_stock ? 'out-of-stock' : ''; ?> <?php echo $index === 0 ? 'selected' : ''; ?>" 
+     data-size-id="<?php echo $size['id']; ?>"
+     data-size="<?php echo htmlspecialchars($size['size']); ?>"
+     data-price="<?php echo $final_price; ?>"
+     data-original-price="<?php echo $size['price']; ?>"
+     data-discount="<?php echo $size['discount']; ?>"
+     data-max-qty="<?php echo $size['quantity']; ?>"
+     data-photos='<?php echo json_encode($size['photos']); ?>'
+     onclick="selectSize(this)">
                                 <div class="size-label"><?php echo htmlspecialchars($size['size']); ?></div>
                                 <div class="size-price">Rs. <?php echo number_format($final_price, 2); ?></div>
                                 <?php if ($size['discount'] > 0): ?>
@@ -996,9 +1013,9 @@ if ($product['gender'] == 0) {
                     </div>
 
                     <div id="sizeSelectionStatus" class="size-selection-status selected">
-                        <i class="fas fa-check-circle"></i>
-                        <span>Size <strong id="selectedSizeDisplay"></strong> selected</span>
-                    </div>
+    <i class="fas fa-check-circle"></i>
+    <span id="sizeStatusText">Size <strong id="selectedSizeDisplay"></strong> selected</span>
+</div>
 
                     <form method="POST" action="" id="orderForm">
                         <input type="hidden" name="selected_size_id" id="selectedSizeIdInput" required>
@@ -1070,59 +1087,80 @@ if ($product['gender'] == 0) {
         });
 
         function selectSize(element, isInitial = false) {
-            // Remove selection from all size cards
-            document.querySelectorAll('.size-card').forEach(card => {
-                card.classList.remove('selected');
-            });
+    // Remove selection from all size cards
+    document.querySelectorAll('.size-card').forEach(card => {
+        card.classList.remove('selected');
+    });
 
-            // Add selection to clicked card
-            element.classList.add('selected');
+    // Add selection to clicked card
+    element.classList.add('selected');
 
-            // Get size data
-            const sizeId = element.getAttribute('data-size-id');
-            const size = element.getAttribute('data-size');
-            const price = parseFloat(element.getAttribute('data-price'));
-            const originalPrice = parseFloat(element.getAttribute('data-original-price'));
-            const discount = parseFloat(element.getAttribute('data-discount'));
-            const maxQty = parseInt(element.getAttribute('data-max-qty'));
-            const photos = JSON.parse(element.getAttribute('data-photos'));
+    // Get size data
+    const sizeId = element.getAttribute('data-size-id');
+    const size = element.getAttribute('data-size');
+    const price = parseFloat(element.getAttribute('data-price'));
+    const originalPrice = parseFloat(element.getAttribute('data-original-price'));
+    const discount = parseFloat(element.getAttribute('data-discount'));
+    const maxQty = parseInt(element.getAttribute('data-max-qty'));
+    const photos = JSON.parse(element.getAttribute('data-photos'));
+    const isOutOfStock = maxQty === 0;
 
-            // Store selected size data
-            selectedSizeData = {
-                id: sizeId,
-                size: size,
-                price: price,
-                originalPrice: originalPrice,
-                discount: discount,
-                maxQuantity: maxQty,
-                photos: photos
-            };
+    // Store selected size data
+    selectedSizeData = {
+        id: sizeId,
+        size: size,
+        price: price,
+        originalPrice: originalPrice,
+        discount: discount,
+        maxQuantity: maxQty,
+        photos: photos,
+        isOutOfStock: isOutOfStock
+    };
 
-            // Update photos in gallery
-            updateGallery(photos);
+    // Update photos in gallery
+    updateGallery(photos);
 
-            // Update hidden input
-            document.getElementById('selectedSizeIdInput').value = sizeId;
+    // Update hidden input
+    document.getElementById('selectedSizeIdInput').value = sizeId;
 
-            // Update status message
-            document.getElementById('selectedSizeDisplay').textContent = size;
+    // Update status message
+    const statusDiv = document.getElementById('sizeSelectionStatus');
+    const statusText = document.getElementById('sizeStatusText');
+    document.getElementById('selectedSizeDisplay').textContent = size;
+    
+    if (isOutOfStock) {
+        statusDiv.classList.remove('selected');
+        statusDiv.classList.add('out-of-stock');
+        statusText.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Size <strong>' + size + '</strong> is out of stock';
+        
+        // Disable form controls
+        document.getElementById('submitBtn').disabled = true;
+        document.getElementById('addToCartBtn').disabled = true;
+        document.getElementById('decreaseBtn').disabled = true;
+        document.getElementById('increaseBtn').disabled = true;
+    } else {
+        statusDiv.classList.remove('out-of-stock');
+        statusDiv.classList.add('selected');
+        statusText.innerHTML = '<i class="fas fa-check-circle"></i> Size <strong>' + size + '</strong> selected';
+        
+        // Reset quantity to 1
+        document.getElementById('quantity').value = 1;
+        document.getElementById('quantity').max = maxQty;
 
-            // Reset quantity to 1
-            document.getElementById('quantity').value = 1;
-            document.getElementById('quantity').max = maxQty;
+        // Enable form controls
+        document.getElementById('submitBtn').disabled = false;
+        document.getElementById('addToCartBtn').disabled = false;
+        updateButtons();
+    }
 
-            // Enable form controls
-            document.getElementById('submitBtn').disabled = false;
-            updateButtons();
+    // Update summary
+    updateTotal();
 
-            // Update summary
-            updateTotal();
-
-            // Smooth scroll to form on mobile if not initial load
-            if (!isInitial && window.innerWidth <= 1024) {
-                document.querySelector('.order-form').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-        }
+    // Smooth scroll to form on mobile if not initial load
+    if (!isInitial && window.innerWidth <= 1024) {
+        document.querySelector('.order-form').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
 
         function updateGallery(photos) {
             const gallery = document.getElementById('imageGallery');
@@ -1272,13 +1310,18 @@ if ($product['gender'] == 0) {
 
         let isAddingToCart = false; // Add this flag at the top
 
-document.getElementById('addToCartBtn').addEventListener('click', function() {
+        document.getElementById('addToCartBtn').addEventListener('click', function() {
     if (isAddingToCart) {
-        return; // Prevent double-clicks
+        return;
     }
     
     if (!selectedSizeData) {
         alert('Please select a size before adding to cart.');
+        return;
+    }
+    
+    if (selectedSizeData.isOutOfStock) {
+        showAlert('This size is out of stock and cannot be added to cart.', 'error');
         return;
     }
     

@@ -480,25 +480,25 @@ $subcategories = $conn->query("SELECT id, subcategory_name FROM subcategories OR
     background: linear-gradient(135deg, #ecf0f1 0%, #bdc3c7 100%);
     color: #687070ff;
     cursor: not-allowed;
-    position: relative;
-}
-
-.size-tag.out-of-stock::after {
-    content: 'Out of Stock';
-    position: absolute;
-    bottom: -20px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 9px;
-    white-space: nowrap;
-    color: #e74c3c;
-    font-weight: 600;
 }
 
 .product-card:hover .size-tag.out-of-stock {
     border-color: #bdc3c7;
     background: linear-gradient(135deg, #ecf0f1 0%, #bdc3c7 100%);
     color: #95a5a6;
+}
+
+.product-out-of-stock-message {
+    font-size: 13px;
+    color: #e74c3c;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 12px;
+    background: rgba(231, 76, 60, 0.1);
+    border-radius: 8px;
+    text-align: center;
+    margin-bottom: 16px;
 }
     </style>
 </head>
@@ -646,13 +646,30 @@ $sizesStmt->close();
                             <div class="product-name"><?php echo htmlspecialchars($row['product_name']); ?></div>
                             
      <?php if (!empty($sizes)): ?>
-<div class="product-sizes">
-    <?php foreach ($sizes as $sizeData): ?>
-        <span class="size-tag <?php echo $sizeData['quantity'] == 0 ? 'out-of-stock' : ''; ?>">
-            <?php echo htmlspecialchars($sizeData['size']); ?>
-        </span>
-    <?php endforeach; ?>
-</div>
+    <?php 
+    // Check if all sizes are out of stock
+    $allOutOfStock = true;
+    foreach ($sizes as $sizeData) {
+        if ($sizeData['quantity'] > 0) {
+            $allOutOfStock = false;
+            break;
+        }
+    }
+    ?>
+    
+    <?php if ($allOutOfStock): ?>
+        <div class="product-out-of-stock-message">
+            <i class="fas fa-times-circle"></i> Out of Stock
+        </div>
+    <?php else: ?>
+        <div class="product-sizes">
+            <?php foreach ($sizes as $sizeData): ?>
+                <span class="size-tag <?php echo $sizeData['quantity'] == 0 ? 'out-of-stock' : ''; ?>">
+                    <?php echo htmlspecialchars($sizeData['size']); ?>
+                </span>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
 <?php endif; ?>
                             <div class="product-price-section">
                                 <span class="price-label">Starting from</span>
