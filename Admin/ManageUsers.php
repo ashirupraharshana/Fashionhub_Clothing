@@ -213,7 +213,7 @@ $stats = [
             gap: 10px;
             animation: slideDown 0.3s ease;
             position: fixed;
-            top: 80px;
+            top: 10px;
             right: 20px;
             z-index: 1000;
             max-width: 400px;

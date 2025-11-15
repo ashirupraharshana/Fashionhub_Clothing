@@ -1316,6 +1316,7 @@ $subcategories = $conn->query("SELECT id, subcategory_name FROM subcategories");
         <?php endif; ?>
 
         <div class="page-header">
+            <h2>Manage Products</h2>
             <div class="breadcrumb">
                 <a href="AdminDashboard.php">Dashboard</a> / Products
             </div>

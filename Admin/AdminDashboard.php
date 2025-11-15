@@ -89,32 +89,28 @@ while ($row = $monthlySales->fetch_assoc()) {
     --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16);
 }
 
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
+ * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-body {
-    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
-    background: #F8F9FA;
-    color: var(--primary-black);
-    line-height: 1.6;
-}
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+        }
 
-/* Main Content Area */
-.main-content {
-    margin-left: 280px;
-    margin-top: 70px;
-    padding: 32px;
-    transition: margin-left 0.3s ease;
-    min-height: calc(100vh - 70px);
-}
+        .main-content {
+            margin-left: 280px;
+            margin-top: 70px;
+            padding: 30px;
+            transition: margin-left 0.3s ease;
+            min-height: calc(100vh - 70px);
+        }
 
-.main-content.expanded {
-    margin-left: 80px;
-}
-
+        .main-content.expanded {
+            margin-left: 80px;
+        }
 /* Welcome Section */
 .welcome-section {
     display: flex;

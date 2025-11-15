@@ -49,7 +49,8 @@ if (isset($conn) && $admin_id > 0) {
     $admin_phone = isset($_SESSION['phone']) ? $_SESSION['phone'] : '';
 }
 
-// Get current time for greeting
+// Get current time for greeting (Sri Lanka timezone)
+date_default_timezone_set('Asia/Colombo');
 $current_hour = date('G');
 if ($current_hour < 12) {
     $greeting = "Good Morning";
@@ -1051,6 +1052,28 @@ $total_notifications = $pending_orders + $unanswered_feedback;
                 profileModal.classList.remove('active');
             }
         });
+
+        // Update greeting based on client's local time
+function updateGreeting() {
+    const now = new Date();
+    const hour = now.getHours();
+    const greetingText = document.querySelector('.greeting-text h3');
+    const greetingIcon = document.querySelector('.greeting-icon');
+    
+    if (hour < 12) {
+        greetingText.textContent = "Good Morning!";
+        greetingIcon.className = "fas fa-sun greeting-icon";
+    } else if (hour < 18) {
+        greetingText.textContent = "Good Afternoon!";
+        greetingIcon.className = "fas fa-cloud-sun greeting-icon";
+    } else {
+        greetingText.textContent = "Good Evening!";
+        greetingIcon.className = "fas fa-moon greeting-icon";
+    }
+}
+
+// Update greeting on page load
+updateGreeting();
     </script>
 </body>
 </html>
