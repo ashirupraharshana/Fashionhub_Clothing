@@ -2881,7 +2881,7 @@ colorPhotosHtml = `
                                     <div style="display: flex; gap: 8px; align-items: center;">
                                         <input type="text" name="edit_color_names[${index}][]" value="${color.color_name}" placeholder="Color or Design" style="flex: 2;">
                                         <input type="text" name="edit_hex_codes[${index}][]" value="${color.hex_code || ''}" placeholder="#FF0000 or Code" style="flex: 1;">
-                                        <input type="number" name="edit_color_quantities[${index}][]" value="${color.quantity}" placeholder="Qty" min="0" style="flex: 1;">
+                                        <input type="number" name="edit_color_quantities[${index}][]" value="${color.quantity}" placeholder="Qty" min="0" style="flex: 1;" oninput="updateSizeQuantity(this)">
                                         <button type="button" class="remove-color-btn" onclick="removeEditColor(this)">
                                             <i class="fas fa-times"></i>
                                         </button>
@@ -3499,13 +3499,14 @@ function addColor(sizeIndex) {
     container.appendChild(colorRow);
 }
 
+
 function removeEditColor(button) {
     const colorRow = button.closest('.color-row');
     const container = colorRow.parentElement;
+    const sizeRow = container.closest('.size-row');
     
     // Check if this is an existing color (has color_id data attribute)
-    const colorNameInput = colorRow.querySelector('input[name^="edit_color_names"]');
-    const colorId = colorRow.dataset.colorId; // Check if this color exists in DB
+    const colorId = colorRow.dataset.colorId;
     
     // Allow removing but confirm if it's the last one
     if (container.children.length <= 1) {
@@ -3533,6 +3534,8 @@ function removeEditColor(button) {
                     
                     setTimeout(() => {
                         colorRow.remove();
+                        // Recalculate size quantity after removal
+                        recalculateSizeQuantity(sizeRow);
                         showTempMessage('Color deleted successfully', 'success');
                     }, 300);
                 } else {
@@ -3555,9 +3558,38 @@ function removeEditColor(button) {
         
         setTimeout(() => {
             colorRow.remove();
+            // Recalculate size quantity after removal
+            recalculateSizeQuantity(sizeRow);
         }, 300);
     }
 }
+
+function recalculateSizeQuantity(sizeRow) {
+    if (!sizeRow) return;
+    
+    const sizeQuantityInput = sizeRow.querySelector('input[name="quantities[]"], input[name="edit_quantities[]"]');
+    if (!sizeQuantityInput) return;
+    
+    // Get all color quantity inputs in this size row
+    const colorQuantityInputs = sizeRow.querySelectorAll('input[name^="color_quantities"], input[name^="edit_color_quantities"]');
+    
+    // Sum up all color quantities
+    let totalQuantity = 0;
+    colorQuantityInputs.forEach(input => {
+        const value = parseInt(input.value) || 0;
+        totalQuantity += value;
+    });
+    
+    // Update size quantity with animation
+    sizeQuantityInput.value = totalQuantity;
+    sizeQuantityInput.style.background = '#e8f5e9';
+    sizeQuantityInput.style.transition = 'background 0.3s ease';
+    
+    setTimeout(() => {
+        sizeQuantityInput.style.background = '#f8f9fa';
+    }, 500);
+}
+
 function removeColor(button) {
     const colorRow = button.closest('.color-row');
     const container = colorRow.parentElement;
@@ -3715,30 +3747,10 @@ function openImageModal(imageSrc) {
 }
 function updateSizeQuantity(colorQuantityInput) {
     const sizeRow = colorQuantityInput.closest('.size-row');
-    const sizeQuantityInput = sizeRow.querySelector('input[name="quantities[]"], input[name="edit_quantities[]"]');
+    if (!sizeRow) return;
     
-    if (!sizeQuantityInput) return;
-    
-    // Get all color quantity inputs in this size row
-    const colorQuantityInputs = sizeRow.querySelectorAll('input[name^="color_quantities"], input[name^="edit_color_quantities"]');
-    
-    // Sum up all color quantities
-    let totalQuantity = 0;
-    colorQuantityInputs.forEach(input => {
-        const value = parseInt(input.value) || 0;
-        totalQuantity += value;
-    });
-    
-    // Update size quantity
-    sizeQuantityInput.value = totalQuantity;
-    
-    // Add visual feedback
-    sizeQuantityInput.style.background = '#e8f5e9';
-    setTimeout(() => {
-        sizeQuantityInput.style.background = '';
-    }, 500);
+    recalculateSizeQuantity(sizeRow);
 }
-
 // Make size quantity read-only and add tooltips
 function makeQuantityFieldsReadOnly() {
     document.querySelectorAll('input[name="quantities[]"], input[name="edit_quantities[]"]').forEach(input => {

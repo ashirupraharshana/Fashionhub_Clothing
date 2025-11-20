@@ -51,22 +51,36 @@ $stmt = $conn->prepare($sizes_sql);
 $stmt->bind_param("i", $product_id);
 $stmt->execute();
 $sizes_result = $stmt->get_result();
+
 $sizes = [];
 while ($size_row = $sizes_result->fetch_assoc()) {
-    // Fetch photos for each size
-    $photos_sql = "SELECT photo FROM photos WHERE product_id = ? AND size_id = ?";
-    $photo_stmt = $conn->prepare($photos_sql);
-    $photo_stmt->bind_param("ii", $product_id, $size_row['id']);
-    $photo_stmt->execute();
-    $photos_result = $photo_stmt->get_result();
+    // Fetch colors for each size
+    $colors_sql = "SELECT * FROM product_colors WHERE product_id = ? AND size_id = ? ORDER BY color_name";
+    $color_stmt = $conn->prepare($colors_sql);
+    $color_stmt->bind_param("ii", $product_id, $size_row['id']);
+    $color_stmt->execute();
+    $colors_result = $color_stmt->get_result();
     
-    $size_row['photos'] = [];
-    while ($photo = $photos_result->fetch_assoc()) {
-        $size_row['photos'][] = $photo['photo'];
+    $size_row['colors'] = [];
+    while ($color_row = $colors_result->fetch_assoc()) {
+        // Fetch photos for each color
+        $photos_sql = "SELECT photo FROM photos WHERE product_id = ? AND size_id = ? AND color_id = ?";
+        $photo_stmt = $conn->prepare($photos_sql);
+        $photo_stmt->bind_param("iii", $product_id, $size_row['id'], $color_row['id']);
+        $photo_stmt->execute();
+        $photos_result = $photo_stmt->get_result();
+        
+        $color_row['photos'] = [];
+        while ($photo = $photos_result->fetch_assoc()) {
+            $color_row['photos'][] = $photo['photo'];
+        }
+        
+        $size_row['colors'][] = $color_row;
+        $photo_stmt->close();
     }
     
     $sizes[] = $size_row;
-    $photo_stmt->close();
+    $color_stmt->close();
 }
 
 // Fetch user details
@@ -81,6 +95,7 @@ $user = $user_result->fetch_assoc();
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
     $selected_size_id = intval($_POST['selected_size_id']);
     $quantity = intval($_POST['quantity']);
+    $selected_color_id = intval($_POST['selected_color_id']);
     
     // Get selected size details
     $size_sql = "SELECT * FROM product_sizes WHERE id = ? AND product_id = ?";
@@ -108,9 +123,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
     $total_price = $unit_price * $quantity;
     
     // Check if item already exists in cart
-    $check_cart_sql = "SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND size_id = ?";
-    $stmt = $conn->prepare($check_cart_sql);
-    $stmt->bind_param("iii", $user_id, $product_id, $selected_size_id);
+    $check_cart_sql = "SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND size_id = ?";$check_cart_sql = "SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND size_id = ? AND color_id = ?";$stmt = $conn->prepare($check_cart_sql);
+    $stmt->bind_param("iiii", $user_id, $product_id, $selected_size_id, $selected_color_id);
     $stmt->execute();
     $cart_result = $stmt->get_result();
     
@@ -143,11 +157,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
             exit;
         }
     } else {
-        // Insert new cart item
-        $insert_cart_sql = "INSERT INTO cart (user_id, product_id, size_id, size, quantity, price, total_price) 
-                           VALUES (?, ?, ?, ?, ?, ?, ?)";
+        $insert_cart_sql = "INSERT INTO cart (user_id, product_id, size_id, color_id, size, quantity, price, total_price) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         $stmt = $conn->prepare($insert_cart_sql);
-        $stmt->bind_param("iiisidd", $user_id, $product_id, $selected_size_id, $selected_size_data['size'], $quantity, $unit_price, $total_price);
+        $stmt->bind_param("iiiisidd", $user_id, $product_id, $selected_size_id, $selected_color_id, $selected_size_data['size'], $quantity, $unit_price, $total_price);
         
         if (!$stmt->execute()) {
             $_SESSION['message'] = 'Failed to add to cart!';
@@ -155,6 +168,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
             echo json_encode(['success' => false, 'message' => 'Failed to add to cart!']);
             exit;
         }
+        // Update color quantity
+$update_color_qty_sql = "UPDATE product_colors SET quantity = quantity - ? WHERE id = ?";
+$color_stmt = $conn->prepare($update_color_qty_sql);
+$color_stmt->bind_param("ii", $quantity, $selected_color_id);
+$color_stmt->execute();
+$color_stmt->close();
     }
     
     // Get updated cart count
@@ -175,21 +194,23 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
     $cart_total_row = $cart_total_result->fetch_assoc();
     $cart_total = $cart_total_row['total'] ?? 0;
     
-    // Get cart items for display
-    $cart_items_sql = "SELECT 
-                        c.id, 
-                        c.product_id, 
-                        c.size_id,
-                        c.size,
-                        c.quantity, 
-                        c.price, 
-                        c.total_price,
-                        p.product_name,
-                        (SELECT photo FROM photos WHERE product_id = c.product_id AND size_id = c.size_id LIMIT 1) as product_photo
-                       FROM cart c 
-                       INNER JOIN products p ON c.product_id = p.id 
-                       WHERE c.user_id = ? 
-                       ORDER BY c.id DESC";
+  $cart_items_sql = "SELECT 
+                    c.id, 
+                    c.product_id, 
+                    c.size_id,
+                    c.color_id,
+                    c.size,
+                    c.quantity, 
+                    c.price, 
+                    c.total_price,
+                    p.product_name,
+                    pc.color_name,
+                    (SELECT photo FROM photos WHERE product_id = c.product_id AND size_id = c.size_id AND color_id = c.color_id LIMIT 1) as product_photo
+                   FROM cart c 
+                   INNER JOIN products p ON c.product_id = p.id 
+                   LEFT JOIN product_colors pc ON c.color_id = pc.id
+                   WHERE c.user_id = ? 
+                   ORDER BY c.id DESC";
     
     $stmt = $conn->prepare($cart_items_sql);
     $stmt->bind_param("i", $user_id);
@@ -219,6 +240,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
     $quantity = intval($_POST['quantity']);
     $delivery_address = trim($_POST['delivery_address']);
     $phone = trim($_POST['phone']);
+    $selected_color_id = intval($_POST['selected_color_id']);
     
     // Get selected size details
     $size_sql = "SELECT * FROM product_sizes WHERE id = ? AND product_id = ?";
@@ -244,13 +266,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         $stmt->bind_param("iisiddss", $user_id, $product_id, $selected_size_data['size'], $quantity, $final_price, $total_price, $delivery_address, $phone);
         
         if ($stmt->execute()) {
-            // Update size quantity - ONLY for the selected size
-            $update_qty_sql = "UPDATE product_sizes SET quantity = quantity - ? WHERE id = ?";
-            $stmt = $conn->prepare($update_qty_sql);
-            $stmt->bind_param("ii", $quantity, $selected_size_id);
-            $stmt->execute();
-            
-            $success = "Order placed successfully!";
+    // Update size quantity - ONLY for the selected size
+    $update_qty_sql = "UPDATE product_sizes SET quantity = quantity - ? WHERE id = ?";
+    $stmt = $conn->prepare($update_qty_sql);
+    $stmt->bind_param("ii", $quantity, $selected_size_id);
+    $stmt->execute();
+    
+    // Update color quantity - ONLY for the selected color
+    $update_color_qty_sql = "UPDATE product_colors SET quantity = quantity - ? WHERE id = ?";
+    $stmt = $conn->prepare($update_color_qty_sql);
+    $stmt->bind_param("ii", $quantity, $selected_color_id);
+    $stmt->execute();
+    
+    $success = "Order placed successfully!";
             
             // Redirect to products page after 2 seconds
             header("refresh:2;url=OrderNow.php");
@@ -702,6 +730,159 @@ if ($product['gender'] == 0) {
             font-weight: 800;
         }
 
+        /* Color Selection Section */
+        .colors-section {
+            background: white;
+            padding: 35px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(231, 76, 60, 0.08);
+            border: 2px solid rgba(231, 76, 60, 0.1);
+            display: none; /* Hidden by default until size is selected */
+        }
+
+        .colors-section.show {
+            display: block;
+            animation: slideInDown 0.4s ease-out;
+        }
+
+        .colors-header {
+            font-size: 24px;
+            font-weight: 800;
+            color: #2c3e50;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e8e8e8;
+        }
+
+        .colors-header i {
+            color: #e74c3c;
+        }
+
+        .colors-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 15px;
+        }
+
+        .color-card {
+            background: white;
+            border: 3px solid #e8e8e8;
+            border-radius: 16px;
+            padding: 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            text-align: center;
+        }
+
+        .color-card:hover:not(.out-of-stock) {
+            border-color: #3498db;
+            box-shadow: 0 8px 25px rgba(52, 152, 219, 0.2);
+            transform: translateY(-3px);
+        }
+
+        .color-card.selected {
+            border-color: #3498db;
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            box-shadow: 0 8px 25px rgba(52, 152, 219, 0.3);
+        }
+
+        .color-card.out-of-stock {
+            opacity: 0.7;
+            cursor: pointer;
+            background: #f8f9fa;
+            border-color: #dee2e6;
+        }
+
+        .color-card.out-of-stock:hover {
+            border-color: #adb5bd;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .color-card.out-of-stock.selected {
+            border-color: #dc3545;
+            background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
+        }
+
+        .color-card.out-of-stock::before {
+            content: 'OUT OF STOCK';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-15deg);
+            font-size: 11px;
+            font-weight: 900;
+            color: rgba(231, 76, 60, 0.3);
+            z-index: 1;
+            letter-spacing: 0.5px;
+        }
+
+        .color-swatch {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            margin: 0 auto 15px;
+            border: 3px solid #e8e8e8;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s;
+        }
+
+        .color-card:hover .color-swatch {
+            transform: scale(1.1);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+        }
+
+        .color-card.selected .color-swatch {
+            border-color: #3498db;
+            box-shadow: 0 6px 16px rgba(52, 152, 219, 0.4);
+        }
+
+        .color-name {
+            font-size: 16px;
+            font-weight: 800;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+
+        .color-quantity {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #7f8c8d;
+            font-weight: 600;
+        }
+
+        .color-quantity i {
+            color: #3498db;
+        }
+
+        .color-quantity .stock-count {
+            color: #2c3e50;
+            font-weight: 800;
+        }
+
+        @media (max-width: 768px) {
+            .colors-grid {
+                grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+                gap: 12px;
+            }
+
+            .color-swatch {
+                width: 50px;
+                height: 50px;
+            }
+
+            .color-name {
+                font-size: 14px;
+            }
+        }
+
         /* Order Form */
         .order-form {
             background: white;
@@ -1048,7 +1229,7 @@ if ($product['gender'] == 0) {
      data-original-price="<?php echo $size['price']; ?>"
      data-discount="<?php echo $size['discount']; ?>"
      data-max-qty="<?php echo $size['quantity']; ?>"
-     data-photos='<?php echo json_encode($size['photos']); ?>'
+     data-colors='<?php echo json_encode($size['colors']); ?>'
      onclick="selectSize(this)">
                                 <div class="size-label"><?php echo htmlspecialchars($size['size']); ?></div>
                                 <div class="size-price">Rs. <?php echo number_format($final_price, 2); ?></div>
@@ -1066,6 +1247,17 @@ if ($product['gender'] == 0) {
                     </div>
                 </div>
 
+                <!-- Colors Section -->
+                <div class="colors-section" id="colorsSection">
+                    <h3 class="colors-header">
+                        <i class="fas fa-palette"></i>
+                        Available Colors/Designs
+                    </h3>
+                    <div class="colors-grid" id="colorsGrid">
+                        <!-- Colors will be loaded dynamically -->
+                    </div>
+                </div>
+
                 <!-- Order Form -->
                 <div class="order-form">
                     <div class="form-header">
@@ -1079,7 +1271,8 @@ if ($product['gender'] == 0) {
 </div>
 
                     <form method="POST" action="" id="orderForm">
-                        <input type="hidden" name="selected_size_id" id="selectedSizeIdInput" required>
+    <input type="hidden" name="selected_size_id" id="selectedSizeIdInput" required>
+    <input type="hidden" name="selected_color_id" id="selectedColorIdInput" required>
 
                         <div class="form-group">
                             <label>Quantity <span>*</span></label>
@@ -1134,10 +1327,13 @@ if ($product['gender'] == 0) {
         </div>
     </div>
 <?php include 'Components/Footer.php'; ?>
-    <script>
+   
+
+<script>
         let currentImageIndex = 0;
         let currentPhotos = [];
         let selectedSizeData = null;
+        let selectedColorData = null;
 
         // Initialize with first available size on page load
         document.addEventListener('DOMContentLoaded', function() {
@@ -1148,80 +1344,217 @@ if ($product['gender'] == 0) {
         });
 
         function selectSize(element, isInitial = false) {
-    // Remove selection from all size cards
-    document.querySelectorAll('.size-card').forEach(card => {
-        card.classList.remove('selected');
-    });
+            // Remove selection from all size cards
+            document.querySelectorAll('.size-card').forEach(card => {
+                card.classList.remove('selected');
+            });
 
-    // Add selection to clicked card
-    element.classList.add('selected');
+            // Add selection to clicked card
+            element.classList.add('selected');
 
-    // Get size data
-    const sizeId = element.getAttribute('data-size-id');
-    const size = element.getAttribute('data-size');
-    const price = parseFloat(element.getAttribute('data-price'));
-    const originalPrice = parseFloat(element.getAttribute('data-original-price'));
-    const discount = parseFloat(element.getAttribute('data-discount'));
-    const maxQty = parseInt(element.getAttribute('data-max-qty'));
-    const photos = JSON.parse(element.getAttribute('data-photos'));
-    const isOutOfStock = maxQty === 0;
+            // Get size data
+            const sizeId = element.getAttribute('data-size-id');
+            const size = element.getAttribute('data-size');
+            const price = parseFloat(element.getAttribute('data-price'));
+            const originalPrice = parseFloat(element.getAttribute('data-original-price'));
+            const discount = parseFloat(element.getAttribute('data-discount'));
+            const maxQty = parseInt(element.getAttribute('data-max-qty'));
+            const colors = JSON.parse(element.getAttribute('data-colors'));
+            const isOutOfStock = maxQty === 0;
 
-    // Store selected size data
-    selectedSizeData = {
-        id: sizeId,
-        size: size,
-        price: price,
-        originalPrice: originalPrice,
-        discount: discount,
-        maxQuantity: maxQty,
-        photos: photos,
-        isOutOfStock: isOutOfStock
-    };
+            // Store selected size data
+            selectedSizeData = {
+                id: sizeId,
+                size: size,
+                price: price,
+                originalPrice: originalPrice,
+                discount: discount,
+                maxQuantity: maxQty,
+                colors: colors,
+                isOutOfStock: isOutOfStock
+            };
 
-    // Update photos in gallery
-    updateGallery(photos);
+            // Reset selected color
+            selectedColorData = null;
 
-    // Update hidden input
-    document.getElementById('selectedSizeIdInput').value = sizeId;
+            // Load colors for this size
+            loadColors(colors);
 
-    // Update status message
-    const statusDiv = document.getElementById('sizeSelectionStatus');
-    const statusText = document.getElementById('sizeStatusText');
-    document.getElementById('selectedSizeDisplay').textContent = size;
-    
-    if (isOutOfStock) {
-        statusDiv.classList.remove('selected');
-        statusDiv.classList.add('out-of-stock');
-        statusText.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Size <strong>' + size + '</strong> is out of stock';
-        
-        // Disable form controls
-        document.getElementById('submitBtn').disabled = true;
-        document.getElementById('addToCartBtn').disabled = true;
-        document.getElementById('decreaseBtn').disabled = true;
-        document.getElementById('increaseBtn').disabled = true;
-    } else {
-        statusDiv.classList.remove('out-of-stock');
-        statusDiv.classList.add('selected');
-        statusText.innerHTML = '<i class="fas fa-check-circle"></i> Size <strong>' + size + '</strong> selected';
-        
-        // Reset quantity to 1
-        document.getElementById('quantity').value = 1;
-        document.getElementById('quantity').max = maxQty;
+            // Update hidden input
+            document.getElementById('selectedSizeIdInput').value = sizeId;
 
-        // Enable form controls
-        document.getElementById('submitBtn').disabled = false;
-        document.getElementById('addToCartBtn').disabled = false;
-        updateButtons();
-    }
+            // Update status message
+            const statusDiv = document.getElementById('sizeSelectionStatus');
+            const statusText = document.getElementById('sizeStatusText');
+            document.getElementById('selectedSizeDisplay').textContent = size;
+            
+            if (isOutOfStock) {
+                statusDiv.classList.remove('selected');
+                statusDiv.classList.add('out-of-stock');
+                statusText.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Size <strong>' + size + '</strong> is out of stock';
+                
+                // Disable form controls
+                document.getElementById('submitBtn').disabled = true;
+                document.getElementById('addToCartBtn').disabled = true;
+                document.getElementById('decreaseBtn').disabled = true;
+                document.getElementById('increaseBtn').disabled = true;
 
-    // Update summary
-    updateTotal();
+                // Hide gallery since no color is selected
+                updateGallery([]);
+            } else {
+                statusDiv.classList.remove('out-of-stock');
+                statusDiv.classList.add('selected');
+                statusText.innerHTML = '<i class="fas fa-check-circle"></i> Size <strong>' + size + '</strong> selected - Please select a color';
+                
+                // Reset quantity to 1
+                document.getElementById('quantity').value = 1;
+                document.getElementById('quantity').max = maxQty;
 
-    // Smooth scroll to form on mobile if not initial load
-    if (!isInitial && window.innerWidth <= 1024) {
-        document.querySelector('.order-form').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-}
+                // Disable order buttons until color is selected
+                document.getElementById('submitBtn').disabled = true;
+                document.getElementById('addToCartBtn').disabled = true;
+                updateButtons();
+
+                // Hide gallery until color is selected
+                updateGallery([]);
+            }
+
+            // Update summary
+            updateTotal();
+
+            // Smooth scroll to colors section on mobile if not initial load
+            if (!isInitial && window.innerWidth <= 1024) {
+                document.getElementById('colorsSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+
+        function loadColors(colors) {
+            const colorsSection = document.getElementById('colorsSection');
+            const colorsGrid = document.getElementById('colorsGrid');
+            
+            if (!colors || colors.length === 0) {
+                colorsSection.classList.remove('show');
+                colorsGrid.innerHTML = '<p style="text-align: center; color: #7f8c8d; padding: 20px;">No colors available for this size.</p>';
+                return;
+            }
+
+            // Show colors section
+            colorsSection.classList.add('show');
+
+            // Build colors HTML
+            let colorsHTML = '';
+            colors.forEach((color, index) => {
+                const isOutOfStock = color.quantity === 0;
+                const hexCode = color.hex_code || '#cccccc';
+                
+                colorsHTML += `
+                    <div class="color-card ${isOutOfStock ? 'out-of-stock' : ''} ${index === 0 ? 'selected' : ''}" 
+                         data-color-id="${color.id}"
+                         data-color-name="${escapeHtml(color.color_name)}"
+                         data-color-hex="${hexCode}"
+                         data-color-qty="${color.quantity}"
+                         data-color-photos='${JSON.stringify(color.photos)}'
+                         onclick="selectColor(this)">
+                        <div class="color-swatch" style="background-color: ${hexCode};"></div>
+                        <div class="color-name">${escapeHtml(color.color_name)}</div>
+                        <div class="color-quantity">
+                            <i class="fas fa-cube"></i>
+                            <span class="stock-count">${color.quantity}</span>
+                            <span>${isOutOfStock ? 'Out' : 'left'}</span>
+                        </div>
+                    </div>
+                `;
+            });
+
+            colorsGrid.innerHTML = colorsHTML;
+
+            // Auto-select first available color
+            const firstAvailableColor = colorsGrid.querySelector('.color-card:not(.out-of-stock)');
+            if (firstAvailableColor) {
+                selectColor(firstAvailableColor, true);
+            }
+        }
+
+        function selectColor(element, isInitial = false) {
+            // Remove selection from all color cards
+            document.querySelectorAll('.color-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+
+            // Add selection to clicked card
+            element.classList.add('selected');
+
+            // Get color data
+            const colorId = element.getAttribute('data-color-id');
+            const colorName = element.getAttribute('data-color-name');
+            const colorQty = parseInt(element.getAttribute('data-color-qty'));
+            const colorPhotos = JSON.parse(element.getAttribute('data-color-photos'));
+            const isOutOfStock = colorQty === 0;
+
+            // Store selected color data
+            selectedColorData = {
+                id: colorId,
+                name: colorName,
+                quantity: colorQty,
+                photos: colorPhotos,
+                isOutOfStock: isOutOfStock
+            };
+            
+            // Update hidden color input
+        document.getElementById('selectedColorIdInput').value = colorId;
+
+            // Update gallery with color photos
+            updateGallery(colorPhotos);
+
+            // Update status message
+            const statusDiv = document.getElementById('sizeSelectionStatus');
+            const statusText = document.getElementById('sizeStatusText');
+            
+            if (isOutOfStock) {
+                statusDiv.classList.remove('selected');
+                statusDiv.classList.add('out-of-stock');
+                statusText.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Color <strong>' + colorName + '</strong> is out of stock';
+                
+                // Disable form controls
+                document.getElementById('submitBtn').disabled = true;
+                document.getElementById('addToCartBtn').disabled = true;
+                document.getElementById('decreaseBtn').disabled = true;
+                document.getElementById('increaseBtn').disabled = true;
+            } else {
+                statusDiv.classList.remove('out-of-stock');
+                statusDiv.classList.add('selected');
+                statusText.innerHTML = '<i class="fas fa-check-circle"></i> Size <strong>' + selectedSizeData.size + '</strong> - Color <strong>' + colorName + '</strong> selected';
+                
+                // Update max quantity based on color quantity
+                const maxQty = Math.min(selectedSizeData.maxQuantity, colorQty);
+                document.getElementById('quantity').value = 1;
+                document.getElementById('quantity').max = maxQty;
+
+                // Enable form controls
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('addToCartBtn').disabled = false;
+                updateButtons();
+            }
+
+            // Update summary
+            updateTotal();
+
+            // Smooth scroll to form on mobile if not initial load
+            if (!isInitial && window.innerWidth <= 1024) {
+                document.querySelector('.order-form').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
 
         function updateGallery(photos) {
             const gallery = document.getElementById('imageGallery');
@@ -1296,12 +1629,13 @@ if ($product['gender'] == 0) {
         }
 
         function increaseQuantity() {
-            if (!selectedSizeData) return;
+            if (!selectedSizeData || !selectedColorData) return;
             
             const qtyInput = document.getElementById('quantity');
             let currentQty = parseInt(qtyInput.value);
+            const maxQty = Math.min(selectedSizeData.maxQuantity, selectedColorData.quantity);
             
-            if (currentQty < selectedSizeData.maxQuantity) {
+            if (currentQty < maxQty) {
                 qtyInput.value = currentQty + 1;
                 updateTotal();
                 updateButtons();
@@ -1331,14 +1665,15 @@ if ($product['gender'] == 0) {
         }
 
         function updateButtons() {
-            if (!selectedSizeData) return;
+            if (!selectedSizeData || !selectedColorData) return;
 
             const quantity = parseInt(document.getElementById('quantity').value);
+            const maxQty = Math.min(selectedSizeData.maxQuantity, selectedColorData.quantity);
             const decreaseBtn = document.getElementById('decreaseBtn');
             const increaseBtn = document.getElementById('increaseBtn');
             
             decreaseBtn.disabled = quantity <= 1;
-            increaseBtn.disabled = quantity >= selectedSizeData.maxQuantity;
+            increaseBtn.disabled = quantity >= maxQty;
         }
 
         // Prevent manual input in quantity field
@@ -1351,6 +1686,12 @@ if ($product['gender'] == 0) {
             if (!selectedSizeData) {
                 e.preventDefault();
                 alert('Please select a size before placing your order.');
+                return;
+            }
+            if (!selectedColorData) {
+                e.preventDefault();
+                alert('Please select a color before placing your order.');
+                return;
             }
         });
 
@@ -1369,146 +1710,116 @@ if ($product['gender'] == 0) {
             }
         });
 
-        let isAddingToCart = false; // Add this flag at the top
+        let isAddingToCart = false;
 
         document.getElementById('addToCartBtn').addEventListener('click', function() {
-    if (isAddingToCart) {
-        return;
-    }
-    
-    if (!selectedSizeData) {
-        alert('Please select a size before adding to cart.');
-        return;
-    }
-    
-    if (selectedSizeData.isOutOfStock) {
-        showAlert('This size is out of stock and cannot be added to cart.', 'error');
-        return;
-    }
-    
-    isAddingToCart = true; // Set flag
-    const quantity = parseInt(document.getElementById('quantity').value);
-    const formData = new FormData();
-    formData.append('add_to_cart', '1');
-    formData.append('selected_size_id', selectedSizeData.id);
-    formData.append('quantity', quantity);
-    
-    // Disable button during request
-    this.disabled = true;
-    this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...';
-    
-    fetch(window.location.href, {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            // Show success message
-            showAlert(data.message, 'success');
-            
-            // Update cart display
-            if (typeof window.updateCartDisplay === 'function') {
-                window.updateCartDisplay({
-                    cart_count: data.cart_count,
-                    cart_total: data.cart_total,
-                    cart_items: data.cart_items
-                });
+            if (isAddingToCart) {
+                return;
             }
             
-            // Reset button
-            setTimeout(() => {
+            if (!selectedSizeData) {
+                alert('Please select a size before adding to cart.');
+                return;
+            }
+
+            if (!selectedColorData) {
+                alert('Please select a color before adding to cart.');
+                return;
+            }
+            
+            if (selectedColorData.isOutOfStock) {
+                showAlert('This color is out of stock and cannot be added to cart.', 'error');
+                return;
+            }
+            
+            isAddingToCart = true;
+            const quantity = parseInt(document.getElementById('quantity').value);
+            const formData = new FormData();
+            formData.append('add_to_cart', '1');
+            formData.append('selected_size_id', selectedSizeData.id);
+            formData.append('quantity', quantity);
+            formData.append('selected_color_id', selectedColorData.id);
+            
+            this.disabled = true;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...';
+            
+            fetch(window.location.href, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(data.message, 'success');
+                    
+                    if (typeof window.updateCartDisplay === 'function') {
+                        window.updateCartDisplay({
+                            cart_count: data.cart_count,
+                            cart_total: data.cart_total,
+                            cart_items: data.cart_items
+                        });
+                    }
+                    
+                    setTimeout(() => {
+                        this.disabled = false;
+                        this.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
+                        isAddingToCart = false;
+                    }, 1000);
+                } else {
+                    showAlert(data.message, 'error');
+                    this.disabled = false;
+                    this.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
+                    isAddingToCart = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Failed to add to cart. Please try again.', 'error');
                 this.disabled = false;
                 this.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
-                isAddingToCart = false; // Reset flag
-            }, 1000);
-        } else {
-            showAlert(data.message, 'error');
-            this.disabled = false;
-            this.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
-            isAddingToCart = false; // Reset flag
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showAlert('Failed to add to cart. Please try again.', 'error');
-        this.disabled = false;
-        this.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
-        isAddingToCart = false; // Reset flag
-    });
-});
-
-function showAlert(message, type) {
-    // Remove any existing toasts first
-    const existingToasts = document.querySelectorAll('.toast');
-    existingToasts.forEach(toast => {
-        toast.classList.remove('show');
-        setTimeout(() => toast.remove(), 500);
-    });
-    
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.innerHTML = `
-        <div class="toast-icon">
-            <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
-        </div>
-        <div class="toast-content">
-            <div class="toast-title">${type === 'success' ? 'Success!' : 'Error!'}</div>
-            <div class="toast-message">${message}</div>
-        </div>
-        <button class="toast-close">&times;</button>
-    `;
-    
-    document.body.appendChild(toast);
-    
-    // Add close button functionality
-    const closeBtn = toast.querySelector('.toast-close');
-    closeBtn.addEventListener('click', function() {
-        toast.classList.remove('show');
-        setTimeout(() => toast.remove(), 500);
-    });
-    
-    // Show toast with animation
-    setTimeout(() => {
-        toast.classList.add('show');
-    }, 100);
-    
-    // Auto hide after 5 seconds
-    setTimeout(() => {
-        toast.classList.remove('show');
-        setTimeout(() => {
-            if (toast.parentElement) toast.remove();
-        }, 500);
-    }, 5000);
-}
-
-    </script>
-
-    <script>
-        // Handle toast notifications on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            const toast = document.querySelector('.toast');
-            if (toast) {
-                setTimeout(() => {
-                    toast.classList.add('show');
-                }, 100);
-
-                const closeBtn = toast.querySelector('.toast-close');
-                if (closeBtn) {
-                    closeBtn.addEventListener('click', function() {
-                        toast.classList.remove('show');
-                        setTimeout(() => toast.remove(), 500);
-                    });
-                }
-
-                setTimeout(() => {
-                    toast.classList.remove('show');
-                    setTimeout(() => {
-                        if (toast.parentElement) toast.remove();
-                    }, 500);
-                }, 5000);
-            }
+                isAddingToCart = false;
+            });
         });
+
+        function showAlert(message, type) {
+            const existingToasts = document.querySelectorAll('.toast');
+            existingToasts.forEach(toast => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 500);
+            });
+            
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <div class="toast-icon">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+                </div>
+                <div class="toast-content">
+                    <div class="toast-title">${type === 'success' ? 'Success!' : 'Error!'}</div>
+                    <div class="toast-message">${message}</div>
+                </div>
+                <button class="toast-close">&times;</button>
+            `;
+            
+            document.body.appendChild(toast);
+            
+            const closeBtn = toast.querySelector('.toast-close');
+            closeBtn.addEventListener('click', function() {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 500);
+            });
+            
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 100);
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (toast.parentElement) toast.remove();
+                }, 500);
+            }, 5000);
+        }
     </script>
     
 </body>

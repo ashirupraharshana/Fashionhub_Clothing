@@ -34,11 +34,11 @@ $user_data = $user_result->fetch_assoc();
 $stmt->close();
 
 
-// Fetch cart items with size information and photos
 $cart_query = "SELECT 
                 c.id, 
                 c.product_id, 
                 c.size_id,
+                c.color_id,
                 c.size,
                 c.quantity, 
                 c.price, 
@@ -109,14 +109,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         $conn->begin_transaction();
         
         try {
-          // First, validate stock availability for all items (size-specific)
+          // First, validate stock availability for all items (size-specific and color-specific)
 foreach ($cart_items as $item) {
-    $stock_check_sql = "SELECT ps.quantity as stock_quantity, p.product_name, ps.size 
+    $stock_check_sql = "SELECT ps.quantity as size_stock, pc.quantity as color_stock, 
+                        p.product_name, ps.size, pc.color_name
                         FROM product_sizes ps
                         INNER JOIN products p ON ps.product_id = p.id
+                        LEFT JOIN product_colors pc ON pc.id = ? AND pc.product_id = p.id AND pc.size_id = ps.id
                         WHERE ps.id = ? AND ps.product_id = ?";
     $stmt = $conn->prepare($stock_check_sql);
-    $stmt->bind_param("ii", $item['size_id'], $item['product_id']);
+    $stmt->bind_param("iii", $item['color_id'], $item['size_id'], $item['product_id']);
     $stmt->execute();
     $stock_result = $stmt->get_result();
     $product = $stock_result->fetch_assoc();
@@ -125,22 +127,26 @@ foreach ($cart_items as $item) {
     if (!$product) {
         throw new Exception("Product or size not found: " . htmlspecialchars($item['product_name']) . " (Size: " . htmlspecialchars($item['size']) . ")");
     }
-                
-                if ($product['stock_quantity'] < $item['quantity']) {
+    
+    // Check size stock
+    if ($product['size_stock'] < $item['quantity']) {
         throw new Exception("Insufficient stock for " . htmlspecialchars($product['product_name']) . 
                           " (Size: " . htmlspecialchars($product['size']) . 
-                          "). Available: " . $product['stock_quantity'] . 
+                          "). Available: " . $product['size_stock'] . 
                           ", Requested: " . $item['quantity']);
     }
     
-    if ($product['stock_quantity'] - $item['quantity'] < 0) {
-        throw new Exception("Cannot process order. Stock would go below 0 for " . 
-                          htmlspecialchars($product['product_name']) . 
-                          " (Size: " . htmlspecialchars($product['size']) . ")");
+    // Check color stock
+    if ($product['color_stock'] < $item['quantity']) {
+        throw new Exception("Insufficient stock for " . htmlspecialchars($product['product_name']) . 
+                          " (Size: " . htmlspecialchars($product['size']) . 
+                          ", Color: " . htmlspecialchars($product['color_name']) . 
+                          "). Available: " . $product['color_stock'] . 
+                          ", Requested: " . $item['quantity']);
     }
 }
             
- // If all stock validations pass, proceed with orders
+// If all stock validations pass, proceed with orders
 foreach ($cart_items as $item) {
     // Use the total_price from cart (already calculated)
     $item_total = $item['total_price'];
@@ -164,10 +170,10 @@ foreach ($cart_items as $item) {
         $phone
     );
                 
-                if (!$stmt->execute()) {
-                    throw new Exception("Order insert failed: " . $stmt->error);
-                }
-                $stmt->close();
+    if (!$stmt->execute()) {
+        throw new Exception("Order insert failed: " . $stmt->error);
+    }
+    $stmt->close();
                 
                 
 // Update product size stock
@@ -193,9 +199,10 @@ foreach ($cart_items as $item) {
                           htmlspecialchars($item['product_name']) . 
                           " (Size: " . htmlspecialchars($item['size']) . ")");
     }
-                
-                $stmt->close();
-            }
+    
+    $stmt->close();
+    
+}
             
             // Clear user's cart
             $clear_cart_sql = "DELETE FROM cart WHERE user_id = ?";

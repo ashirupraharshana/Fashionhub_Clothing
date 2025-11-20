@@ -167,13 +167,13 @@ if (isset($_SESSION['user_id'])) {
         }
 
         body {
-            font-family: 'Poppins', sans-serif;
-            background: var(--bg-light);
-            color: var(--text-dark);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
+            min-height: 100vh;
+            color: #2c3e50;
             line-height: 1.6;
-            overflow-x: hidden;
-            <?php if (isset($_SESSION['user_id'])): ?>
-            padding-top: 80px;
+            <?php if ($is_logged_in): ?>
+            padding-top: 70px;
             <?php endif; ?>
         }
 
