@@ -168,12 +168,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_to_cart'])) {
             echo json_encode(['success' => false, 'message' => 'Failed to add to cart!']);
             exit;
         }
-        // Update color quantity
-$update_color_qty_sql = "UPDATE product_colors SET quantity = quantity - ? WHERE id = ?";
-$color_stmt = $conn->prepare($update_color_qty_sql);
-$color_stmt->bind_param("ii", $quantity, $selected_color_id);
-$color_stmt->execute();
-$color_stmt->close();
+        
     }
     
     // Get updated cart count
@@ -259,12 +254,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         $final_price = $selected_size_data['price'] - ($selected_size_data['price'] * $selected_size_data['discount'] / 100);
         $total_price = $final_price * $quantity;
         
-        // Insert order with status 0 (Pending)
-        $order_sql = "INSERT INTO orders (user_id, product_id, size, quantity, price, total_price, delivery_address, phone, status) 
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)";
-        $stmt = $conn->prepare($order_sql);
-        $stmt->bind_param("iisiddss", $user_id, $product_id, $selected_size_data['size'], $quantity, $final_price, $total_price, $delivery_address, $phone);
-        
+       $order_sql = "INSERT INTO orders (user_id, product_id, size_id, size, color_id, quantity, price, total_price, delivery_address, phone, status) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)";
+$stmt = $conn->prepare($order_sql);
+$stmt->bind_param("iiisiiddss", $user_id, $product_id, $selected_size_id, $selected_size_data['size'], $selected_color_id, $quantity, $final_price, $total_price, $delivery_address, $phone);
+
         if ($stmt->execute()) {
     // Update size quantity - ONLY for the selected size
     $update_qty_sql = "UPDATE product_sizes SET quantity = quantity - ? WHERE id = ?";

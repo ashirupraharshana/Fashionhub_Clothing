@@ -45,10 +45,12 @@ $cart_query = "SELECT
                 c.total_price,
                 p.product_name,
                 ps.size as size_label,
-                ps.discount
+                ps.discount,
+                pc.color_name
                FROM cart c 
                INNER JOIN products p ON c.product_id = p.id 
                LEFT JOIN product_sizes ps ON c.size_id = ps.id
+               LEFT JOIN product_colors pc ON c.color_id = pc.id
                WHERE c.user_id = ? 
                ORDER BY c.id DESC";
 $stmt = $conn->prepare($cart_query);
@@ -59,10 +61,10 @@ $cart_result = $stmt->get_result();
 $cart_items = [];
 $total = 0;
 while ($row = $cart_result->fetch_assoc()) {
-    // Fetch photos for this specific size
-    $photos_sql = "SELECT photo FROM photos WHERE product_id = ? AND size_id = ? LIMIT 1";
-    $photo_stmt = $conn->prepare($photos_sql);
-    $photo_stmt->bind_param("ii", $row['product_id'], $row['size_id']);
+    // Fetch photos for this specific size and color
+$photos_sql = "SELECT photo FROM photos WHERE product_id = ? AND size_id = ? AND color_id = ? LIMIT 1";
+$photo_stmt = $conn->prepare($photos_sql);
+$photo_stmt->bind_param("iii", $row['product_id'], $row['size_id'], $row['color_id']);
     $photo_stmt->execute();
     $photos_result = $photo_stmt->get_result();
     
@@ -151,24 +153,26 @@ foreach ($cart_items as $item) {
     // Use the total_price from cart (already calculated)
     $item_total = $item['total_price'];
     
-    $order_sql = "INSERT INTO orders (user_id, product_id, size, quantity, price, total_price, delivery_address, phone, status) 
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)";
-    $stmt = $conn->prepare($order_sql);
-    
-    if (!$stmt) {
-        throw new Exception("Order prepare failed: " . $conn->error);
-    }
-    
-    $stmt->bind_param("iisiddss", 
-        $user_id, 
-        $item['product_id'],
-        $item['size'], 
-        $item['quantity'], 
-        $item['price'], 
-        $item_total,
-        $delivery_address, 
-        $phone
-    );
+    $order_sql = "INSERT INTO orders (user_id, product_id, size_id, size, color_id, quantity, price, total_price, delivery_address, phone, status) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)";
+$stmt = $conn->prepare($order_sql);
+
+if (!$stmt) {
+    throw new Exception("Order prepare failed: " . $conn->error);
+}
+
+$stmt->bind_param("iiisiiddss", 
+    $user_id, 
+    $item['product_id'],
+    $item['size_id'],
+    $item['size'],
+    $item['color_id'],
+    $item['quantity'], 
+    $item['price'], 
+    $item_total,
+    $delivery_address, 
+    $phone
+);
                 
     if (!$stmt->execute()) {
         throw new Exception("Order insert failed: " . $stmt->error);
@@ -201,6 +205,34 @@ foreach ($cart_items as $item) {
     }
     
     $stmt->close();
+    
+    // Update product color stock
+    $update_color_stock_sql = "UPDATE product_colors 
+                              SET quantity = quantity - ? 
+                              WHERE id = ? 
+                              AND product_id = ?
+                              AND size_id = ?
+                              AND quantity >= ?";
+    $color_stmt = $conn->prepare($update_color_stock_sql);
+    
+    if (!$color_stmt) {
+        throw new Exception("Color stock update prepare failed: " . $conn->error);
+    }
+    
+    $color_stmt->bind_param("iiiii", $item['quantity'], $item['color_id'], $item['product_id'], $item['size_id'], $item['quantity']);
+    
+    if (!$color_stmt->execute()) {
+        throw new Exception("Color stock update failed: " . $color_stmt->error);
+    }
+    
+    if ($color_stmt->affected_rows === 0) {
+        throw new Exception("Color stock update failed - insufficient stock for " . 
+                          htmlspecialchars($item['product_name']) . 
+                          " (Size: " . htmlspecialchars($item['size']) . 
+                          ", Color: " . htmlspecialchars($item['color_name']) . ")");
+    }
+    
+    $color_stmt->close();
     
 }
             
@@ -686,9 +718,14 @@ foreach ($cart_items as $item) {
                 <?php endif; ?>
             </div>
             <div class="item-meta">
-                <span class="item-quantity">Qty: <?php echo $item['quantity']; ?> × Rs. <?php echo number_format($item['price'], 2); ?></span>
-                <span class="item-price">Rs. <?php echo number_format($item['total_price'], 2); ?></span>
-            </div>
+    <span class="item-quantity">
+        <?php if (!empty($item['color_name'])): ?>
+            Color: <?php echo htmlspecialchars($item['color_name']); ?> | 
+        <?php endif; ?>
+        Qty: <?php echo $item['quantity']; ?> × Rs. <?php echo number_format($item['price'], 2); ?>
+    </span>
+    <span class="item-price">Rs. <?php echo number_format($item['total_price'], 2); ?></span>
+</div>
         </div>
     </div>
 <?php endforeach; ?>

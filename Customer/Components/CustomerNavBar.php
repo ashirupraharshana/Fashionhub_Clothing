@@ -140,21 +140,24 @@ if (isset($_SESSION['user_id'])) {
     $cart_total = $cart_total_row['total'] ?? 0;
     $stmt->close();
     
-    // Get cart items WITH SIZE INFO
-    $cart_items_sql = "SELECT 
-                        c.id, 
-                        c.product_id, 
-                        c.size_id,
-                        c.size,
-                        c.quantity, 
-                        c.price, 
-                        c.total_price,
-                        p.product_name,
-                        (SELECT photo FROM photos WHERE product_id = c.product_id AND size_id = c.size_id LIMIT 1) as product_photo
-                       FROM cart c 
-                       INNER JOIN products p ON c.product_id = p.id 
-                       WHERE c.user_id = ? 
-                       ORDER BY c.id DESC";
+// Get cart items WITH SIZE INFO AND COLOR INFO
+$cart_items_sql = "SELECT 
+                    c.id, 
+                    c.product_id, 
+                    c.size_id,
+                    c.color_id,
+                    c.size,
+                    c.quantity, 
+                    c.price, 
+                    c.total_price,
+                    p.product_name,
+                    pc.color_name,
+                    (SELECT photo FROM photos WHERE product_id = c.product_id AND size_id = c.size_id AND color_id = c.color_id LIMIT 1) as product_photo
+                   FROM cart c 
+                   INNER JOIN products p ON c.product_id = p.id 
+                   LEFT JOIN product_colors pc ON c.color_id = pc.id
+                   WHERE c.user_id = ? 
+                   ORDER BY c.id DESC";
     
     $stmt = $conn->prepare($cart_items_sql);
     if (!$stmt) {

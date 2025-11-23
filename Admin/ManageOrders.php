@@ -7,12 +7,13 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_details' && isset($_GET['id']
     header('Content-Type: application/json');
     $order_id = intval($_GET['id']);
     
-$stmt = $conn->prepare("SELECT o.*, u.name as fullname, u.email, p.product_name, ps.size, ph.photo
+$stmt = $conn->prepare("SELECT o.*, u.fullname, u.email, p.product_name, ps.size, pc.color_name, ph.photo
                         FROM orders o 
                         LEFT JOIN users u ON o.user_id = u.id 
                         LEFT JOIN products p ON o.product_id = p.id
-                        LEFT JOIN product_sizes ps ON o.size = ps.id
-                        LEFT JOIN photos ph ON p.id = ph.product_id
+                        LEFT JOIN product_sizes ps ON o.size_id = ps.id
+                        LEFT JOIN product_colors pc ON o.color_id = pc.id
+                        LEFT JOIN photos ph ON p.id = ph.product_id AND ph.size_id = o.size_id AND ph.color_id = o.color_id
                         WHERE o.id = ?
                         LIMIT 1");
     $stmt->bind_param("i", $order_id);
@@ -91,8 +92,8 @@ if (isset($_GET['delete'])) {
     $conn->begin_transaction();
     
     try {
-        // Get order details including product_id and size
-        $stmt = $conn->prepare("SELECT product_id, size, quantity FROM orders WHERE id = ?");
+        // Get order details including product_id, size_id, color_id, and quantity
+        $stmt = $conn->prepare("SELECT product_id, size_id, color_id, quantity FROM orders WHERE id = ?");
         $stmt->bind_param("i", $order_id);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -104,25 +105,46 @@ if (isset($_GET['delete'])) {
         $order = $result->fetch_assoc();
         $stmt->close();
         
-        // Return quantity to product_sizes using product_id and size (not id)
-        $updateStmt = $conn->prepare("UPDATE product_sizes 
-                                       SET quantity = quantity + ? 
-                                       WHERE product_id = ? AND size = ?");
-        $updateStmt->bind_param("iis", 
+        // Return quantity to product_sizes
+        $updateSizeStmt = $conn->prepare("UPDATE product_sizes 
+                                           SET quantity = quantity + ? 
+                                           WHERE id = ? AND product_id = ?");
+        $updateSizeStmt->bind_param("iii", 
             $order['quantity'], 
-            $order['product_id'], 
-            $order['size']
+            $order['size_id'], 
+            $order['product_id']
         );
         
-        if (!$updateStmt->execute()) {
-            throw new Exception("Failed to return quantity to inventory.");
+        if (!$updateSizeStmt->execute()) {
+            throw new Exception("Failed to return quantity to size inventory.");
         }
         
-        if ($updateStmt->affected_rows === 0) {
+        if ($updateSizeStmt->affected_rows === 0) {
             throw new Exception("Product size not found in inventory.");
         }
         
-        $updateStmt->close();
+        $updateSizeStmt->close();
+        
+        // Return quantity to product_colors
+        $updateColorStmt = $conn->prepare("UPDATE product_colors 
+                                            SET quantity = quantity + ? 
+                                            WHERE id = ? AND product_id = ? AND size_id = ?");
+        $updateColorStmt->bind_param("iiii", 
+            $order['quantity'], 
+            $order['color_id'], 
+            $order['product_id'],
+            $order['size_id']
+        );
+        
+        if (!$updateColorStmt->execute()) {
+            throw new Exception("Failed to return quantity to color inventory.");
+        }
+        
+        if ($updateColorStmt->affected_rows === 0) {
+            throw new Exception("Product color not found in inventory.");
+        }
+        
+        $updateColorStmt->close();
         
         // Delete the order
         $deleteStmt = $conn->prepare("DELETE FROM orders WHERE id = ?");
@@ -153,11 +175,12 @@ if (isset($_GET['delete'])) {
 $search = "";
 $status_filter = isset($_GET['status_filter']) ? intval($_GET['status_filter']) : 0; // Default to Pending
 
-$query = "SELECT o.*, u.fullname, p.product_name, ps.size as size_name
+$query = "SELECT o.*, u.fullname, p.product_name, ps.size as size_name, pc.color_name
           FROM orders o 
           LEFT JOIN users u ON o.user_id = u.id 
           LEFT JOIN products p ON o.product_id = p.id
-          LEFT JOIN product_sizes ps ON o.size = ps.id
+          LEFT JOIN product_sizes ps ON o.size_id = ps.id
+          LEFT JOIN product_colors pc ON o.color_id = pc.id
           WHERE o.status = ?";
 
 $params = [$status_filter];
@@ -785,7 +808,8 @@ $cancelledCount = $conn->query("SELECT COUNT(*) as count FROM orders WHERE statu
                             <th>Customer</th>
                             <th>Product</th>
                             <th>Size</th>
-                            <th>Quantity</th>
+<th>Color</th>
+<th>Quantity</th>
                             <th>Total Price</th>
                             <th>Status</th>
                             <th>Order Date</th>
@@ -804,6 +828,7 @@ $cancelledCount = $conn->query("SELECT COUNT(*) as count FROM orders WHERE statu
                                 <td><?php echo htmlspecialchars($row['fullname'] ?: 'Guest'); ?></td>
                                 <td><?php echo htmlspecialchars($row['product_name']); ?></td>
                                 <td><?php echo htmlspecialchars($row['size_name']); ?></td>
+                                <td><?php echo htmlspecialchars($row['color_name'] ?? 'N/A'); ?></td>
                                 <td><?php echo $row['quantity']; ?></td>
                                 <td><strong>$<?php echo number_format($row['total_price'], 2); ?></strong></td>
                                 <td><span class="status-badge <?php echo $statusClass; ?>"><?php echo $statusText; ?></span></td>
@@ -965,7 +990,7 @@ $cancelledCount = $conn->query("SELECT COUNT(*) as count FROM orders WHERE statu
                             ${productImageHtml}
                             <div>
                                 <div style="font-weight: 600; margin-bottom: 5px;">${data.product_name}</div>
-                                <div style="color: #999; font-size: 13px;">Size: ${data.size}</div>
+<div style="color: #999; font-size: 13px;">Size: ${data.size} | Color: ${data.color_name || 'N/A'}</div>
                             </div>
                         </div>
                         

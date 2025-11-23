@@ -21,12 +21,15 @@ $stmt = $conn->prepare("SELECT o.*,
                         ps.price as size_price,
                         ps.discount,
                         ps.id as size_id,
+                        pc.color_name,
+                        o.color_id,
                         c.category_name,
                         s.subcategory_name
                         FROM orders o 
                         LEFT JOIN users u ON o.user_id = u.id 
                         LEFT JOIN products p ON o.product_id = p.id
-                        LEFT JOIN product_sizes ps ON o.product_id = ps.product_id AND o.size = ps.size
+                        LEFT JOIN product_sizes ps ON o.size_id = ps.id
+                        LEFT JOIN product_colors pc ON o.color_id = pc.id
                         LEFT JOIN categories c ON p.category_id = c.id
                         LEFT JOIN subcategories s ON p.subcategory_id = s.id
                         WHERE o.id = ?");
@@ -43,9 +46,13 @@ if ($result->num_rows === 0) {
 $order = $result->fetch_assoc();
 $stmt->close();
 
-// Fetch ALL product photos for the specific size ordered
-$photoStmt = $conn->prepare("SELECT photo FROM photos WHERE product_id = ? AND size_id = ? ORDER BY id ASC");
-$photoStmt->bind_param("ii", $order['product_id'], $order['size_id']);
+// Fetch ALL product photos for the specific size AND color ordered
+$photoStmt = $conn->prepare("SELECT photo FROM photos 
+                            WHERE product_id = ? 
+                            AND size_id = ? 
+                            AND color_id = ? 
+                            ORDER BY id ASC");
+$photoStmt->bind_param("iii", $order['product_id'], $order['size_id'], $order['color_id']);
 $photoStmt->execute();
 $photoResult = $photoStmt->get_result();
 $photos = [];
@@ -587,8 +594,8 @@ $finalTotal = $subtotal - $discountAmount;
             </div>
         <?php endif; ?>
         <div style="margin-top: 10px; text-align: center; font-size: 12px; color: #999;">
-            <?php echo count($photos); ?> photo<?php echo count($photos) > 1 ? 's' : ''; ?> for size <?php echo htmlspecialchars($order['size']); ?>
-        </div>
+    <?php echo count($photos); ?> photo<?php echo count($photos) > 1 ? 's' : ''; ?> for size <?php echo htmlspecialchars($order['size']); ?> - <?php echo htmlspecialchars($order['color_name'] ?? 'Default Color'); ?>
+</div>
     <?php else: ?>
         <div class="product-placeholder">
             <i class="fas fa-box"></i>
@@ -618,6 +625,10 @@ $finalTotal = $subtotal - $discountAmount;
                                     <i class="fas fa-ruler"></i>
                                     <span>Size: <strong><?php echo htmlspecialchars($order['size']); ?></strong></span>
                                 </div>
+                                <div class="meta-item">
+        <i class="fas fa-palette"></i>
+        <span>Color: <strong><?php echo htmlspecialchars($order['color_name'] ?? 'N/A'); ?></strong></span>
+    </div>
                                 <div class="meta-item">
                                     <i class="fas fa-boxes"></i>
                                     <span>Quantity: <strong><?php echo $quantity; ?></strong></span>

@@ -28,7 +28,7 @@ if ($product_result->num_rows === 0) {
 
 $product = $product_result->fetch_assoc();
 
-// Fetch all sizes with their details and photos
+// Fetch all sizes with their details, colors, and photos
 $sizes_sql = "SELECT ps.* FROM product_sizes ps WHERE ps.product_id = ? ORDER BY 
               CASE 
                   WHEN ps.size = 'XS' THEN 0
@@ -46,20 +46,33 @@ $stmt->execute();
 $sizes_result = $stmt->get_result();
 $sizes = [];
 while ($size_row = $sizes_result->fetch_assoc()) {
-    // Fetch photos for each size
-    $photos_sql = "SELECT photo FROM photos WHERE product_id = ? AND size_id = ?";
-    $photo_stmt = $conn->prepare($photos_sql);
-    $photo_stmt->bind_param("ii", $product_id, $size_row['id']);
-    $photo_stmt->execute();
-    $photos_result = $photo_stmt->get_result();
+    // Fetch colors for this size
+    $colors_sql = "SELECT id, color_name, hex_code, quantity FROM product_colors WHERE product_id = ? AND size_id = ?";
+    $color_stmt = $conn->prepare($colors_sql);
+    $color_stmt->bind_param("ii", $product_id, $size_row['id']);
+    $color_stmt->execute();
+    $colors_result = $color_stmt->get_result();
     
-    $size_row['photos'] = [];
-    while ($photo = $photos_result->fetch_assoc()) {
-        $size_row['photos'][] = $photo['photo'];
+    $size_row['colors'] = [];
+    while ($color = $colors_result->fetch_assoc()) {
+        // Fetch photos for this specific color
+        $photos_sql = "SELECT photo FROM photos WHERE product_id = ? AND size_id = ? AND color_id = ?";
+        $photo_stmt = $conn->prepare($photos_sql);
+        $photo_stmt->bind_param("iii", $product_id, $size_row['id'], $color['id']);
+        $photo_stmt->execute();
+        $photos_result = $photo_stmt->get_result();
+        
+        $color['photos'] = [];
+        while ($photo = $photos_result->fetch_assoc()) {
+            $color['photos'][] = $photo['photo'];
+        }
+        $photo_stmt->close();
+        
+        $size_row['colors'][] = $color;
     }
+    $color_stmt->close();
     
     $sizes[] = $size_row;
-    $photo_stmt->close();
 }
 
 // Determine gender label
@@ -890,6 +903,76 @@ $related_result = $stmt->get_result();
                 font-size: 15px;
             }
         }
+
+        /* Color Selection Styles */
+        .color-card {
+            background: white;
+            border: 3px solid #e8e8e8;
+            border-radius: 12px;
+            padding: 15px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-align: center;
+            position: relative;
+        }
+
+        .color-card:hover:not(.out-of-stock) {
+            border-color: var(--accent);
+            box-shadow: 0 6px 20px rgba(231, 76, 60, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .color-card.selected {
+            border-color: var(--accent);
+            background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
+            box-shadow: 0 6px 20px rgba(231, 76, 60, 0.3);
+        }
+
+        .color-card.out-of-stock {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: #f8f9fa;
+        }
+
+        .color-swatch {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            margin: 0 auto 10px;
+            border: 3px solid #e8e8e8;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .color-card.selected .color-swatch {
+            border-color: var(--accent);
+            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+        }
+
+        .color-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 5px;
+        }
+
+        .color-quantity {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            font-size: 11px;
+            color: var(--text-light);
+            font-weight: 600;
+        }
+
+        .color-quantity i {
+            color: var(--accent);
+        }
+
+        .color-quantity .stock-count {
+            color: var(--primary);
+            font-weight: 800;
+        }
     </style>
 </head>
 <body>
@@ -974,14 +1057,14 @@ $related_result = $stmt->get_result();
                             $final_price = $size['price'] - ($size['price'] * $size['discount'] / 100);
                             ?>
                             <div class="size-card <?php echo $is_out_of_stock ? 'out-of-stock' : ''; ?> <?php echo $index === 0 && !$is_out_of_stock ? 'selected' : ''; ?>" 
-                                 data-size-id="<?php echo $size['id']; ?>"
-                                 data-size="<?php echo htmlspecialchars($size['size']); ?>"
-                                 data-price="<?php echo $final_price; ?>"
-                                 data-original-price="<?php echo $size['price']; ?>"
-                                 data-discount="<?php echo $size['discount']; ?>"
-                                 data-max-qty="<?php echo $size['quantity']; ?>"
-                                 data-photos='<?php echo json_encode($size['photos']); ?>'
-                                 onclick="<?php echo !$is_out_of_stock ? 'selectSize(this)' : ''; ?>">
+     data-size-id="<?php echo $size['id']; ?>"
+     data-size="<?php echo htmlspecialchars($size['size']); ?>"
+     data-price="<?php echo $final_price; ?>"
+     data-original-price="<?php echo $size['price']; ?>"
+     data-discount="<?php echo $size['discount']; ?>"
+     data-max-qty="<?php echo $size['quantity']; ?>"
+     data-colors='<?php echo htmlspecialchars(json_encode($size['colors']), ENT_QUOTES); ?>'
+     onclick="<?php echo !$is_out_of_stock ? 'selectSize(this)' : ''; ?>">
                                 <div class="size-label"><?php echo htmlspecialchars($size['size']); ?></div>
                                 <div class="size-price">Rs. <?php echo number_format($final_price, 2); ?></div>
                                 <?php if ($size['discount'] > 0): ?>
@@ -997,9 +1080,21 @@ $related_result = $stmt->get_result();
                         <?php endforeach; ?>
                     </div>
 
+                    <!-- Color Selection -->
+                    <div id="colorSelectionSection" style="display: none; margin-top: 25px;">
+                        <h4 style="font-size: 16px; font-weight: 700; color: var(--primary); margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
+                            <i class="fas fa-palette" style="color: var(--accent);"></i>
+                            Select Color
+                        </h4>
+                        <div id="colorsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px;">
+                            <!-- Colors will be dynamically inserted here -->
+                        </div>
+                    </div>
+
                     <div class="selected-size-info" id="selectedSizeInfo">
                         <i class="fas fa-check-circle"></i>
                         <span>Size <strong id="selectedSizeDisplay"></strong> selected</span>
+                        <span id="selectedColorDisplay" style="display: none;"> - Color: <strong id="selectedColorName"></strong></span>
                     </div>
                 </div>
 
@@ -1125,6 +1220,8 @@ $related_result = $stmt->get_result();
             }
         });
 
+        let selectedColorData = null;
+
         function selectSize(element) {
             // Remove selection from all size cards
             document.querySelectorAll('.size-card').forEach(card => {
@@ -1141,7 +1238,7 @@ $related_result = $stmt->get_result();
             const originalPrice = parseFloat(element.getAttribute('data-original-price'));
             const discount = parseFloat(element.getAttribute('data-discount'));
             const maxQty = parseInt(element.getAttribute('data-max-qty'));
-            const photos = JSON.parse(element.getAttribute('data-photos'));
+            const colors = JSON.parse(element.getAttribute('data-colors'));
 
             // Store selected size data
             selectedSizeData = {
@@ -1151,20 +1248,108 @@ $related_result = $stmt->get_result();
                 originalPrice: originalPrice,
                 discount: discount,
                 maxQuantity: maxQty,
-                photos: photos
+                colors: colors
             };
 
-            // Update photos in gallery
-            updateGallery(photos);
+            // Reset selected color
+            selectedColorData = null;
+            document.getElementById('selectedColorDisplay').style.display = 'none';
 
             // Update selected size display
             document.getElementById('selectedSizeDisplay').textContent = size;
 
-            // Update price display
+            // Display colors if available
+            if (colors && colors.length > 0) {
+                displayColors(colors);
+                document.getElementById('colorSelectionSection').style.display = 'block';
+            } else {
+                document.getElementById('colorSelectionSection').style.display = 'none';
+                // If no colors, update display with size data
+                updatePriceDisplay();
+                updateStockStatus(maxQty);
+                updateGallery([]);
+            }
+
+            // Smooth scroll to price section on mobile
+            if (window.innerWidth <= 1024) {
+                document.getElementById('priceSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+
+        function displayColors(colors) {
+            const colorsGrid = document.getElementById('colorsGrid');
+            colorsGrid.innerHTML = '';
+
+            colors.forEach((color, index) => {
+                const isOutOfStock = color.quantity === 0;
+                const colorCard = document.createElement('div');
+                colorCard.className = `color-card ${isOutOfStock ? 'out-of-stock' : ''} ${index === 0 && !isOutOfStock ? 'selected' : ''}`;
+                colorCard.setAttribute('data-color-id', color.id);
+                colorCard.setAttribute('data-color-name', color.color_name);
+                colorCard.setAttribute('data-color-quantity', color.quantity);
+                colorCard.setAttribute('data-color-photos', JSON.stringify(color.photos));
+                
+                if (!isOutOfStock) {
+                    colorCard.onclick = function() { selectColor(this); };
+                }
+
+                const hexCode = color.hex_code || '#cccccc';
+                
+                colorCard.innerHTML = `
+                    <div class="color-swatch" style="background: ${hexCode};"></div>
+                    <div class="color-name">${color.color_name}</div>
+                    <div class="color-quantity">
+                        <i class="fas fa-cube"></i>
+                        <span class="stock-count">${color.quantity}</span>
+                        <span>${isOutOfStock ? 'Out' : 'left'}</span>
+                    </div>
+                `;
+
+                colorsGrid.appendChild(colorCard);
+            });
+
+            // Auto-select first available color
+            const firstAvailableColor = colorsGrid.querySelector('.color-card:not(.out-of-stock)');
+            if (firstAvailableColor) {
+                selectColor(firstAvailableColor);
+            }
+        }
+
+        function selectColor(element) {
+            // Remove selection from all color cards
+            document.querySelectorAll('.color-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+
+            // Add selection to clicked card
+            element.classList.add('selected');
+
+            // Get color data
+            const colorId = element.getAttribute('data-color-id');
+            const colorName = element.getAttribute('data-color-name');
+            const colorQuantity = parseInt(element.getAttribute('data-color-quantity'));
+            const colorPhotos = JSON.parse(element.getAttribute('data-color-photos'));
+
+            // Store selected color data
+            selectedColorData = {
+                id: colorId,
+                name: colorName,
+                quantity: colorQuantity,
+                photos: colorPhotos
+            };
+
+            // Update selected color display
+            document.getElementById('selectedColorName').textContent = colorName;
+            document.getElementById('selectedColorDisplay').style.display = 'inline';
+
+            // Update photos in gallery
+            updateGallery(colorPhotos);
+
+            // Update price display (use size price)
             updatePriceDisplay();
 
-            // Update stock status
-            updateStockStatus(maxQty);
+            // Update stock status (use color quantity)
+            updateStockStatus(colorQuantity);
 
             // Smooth scroll to price section on mobile
             if (window.innerWidth <= 1024) {
@@ -1291,12 +1476,20 @@ function handleBuyNow() {
         alert('Please select a size');
         return;
     }
+    if (selectedSizeData.colors && selectedSizeData.colors.length > 0 && !selectedColorData) {
+        alert('Please select a color');
+        return;
+    }
     openMembersOnlyModal();
 }
 
 function handleAddToCart() {
     if (!selectedSizeData) {
         alert('Please select a size');
+        return;
+    }
+    if (selectedSizeData.colors && selectedSizeData.colors.length > 0 && !selectedColorData) {
+        alert('Please select a color');
         return;
     }
     openMembersOnlyModal();
