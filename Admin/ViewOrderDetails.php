@@ -641,7 +641,7 @@ $finalTotal = $subtotal - $discountAmount;
                     <div class="price-breakdown">
                         <div class="price-row">
                             <span>Unit Price:</span>
-                            <span class="price-value">$<?php echo number_format($unitPrice, 2); ?></span>
+                            <span class="price-value">Rs <?php echo number_format($unitPrice, 2); ?></span>
                         </div>
                         <div class="price-row">
                             <span>Quantity:</span>
@@ -649,7 +649,7 @@ $finalTotal = $subtotal - $discountAmount;
                         </div>
                         <div class="price-row subtotal">
                             <span>Subtotal:</span>
-                            <span class="price-value">$<?php echo number_format($subtotal, 2); ?></span>
+                            <span class="price-value">Rs <?php echo number_format($subtotal, 2); ?></span>
                         </div>
                         <?php if ($discount > 0): ?>
                             <div class="price-row">
@@ -657,12 +657,12 @@ $finalTotal = $subtotal - $discountAmount;
                                     Discount 
                                     <span class="discount-badge"><?php echo number_format($discount, 0); ?>% OFF</span>
                                 </span>
-                                <span class="price-value" style="color: #28a745;">-$<?php echo number_format($discountAmount, 2); ?></span>
+                                <span class="price-value" style="color: #28a745;">-Rs <?php echo number_format($discountAmount, 2); ?></span>
                             </div>
                         <?php endif; ?>
                         <div class="price-row total">
                             <span>Total Amount:</span>
-                            <span class="price-value">$<?php echo number_format($finalTotal, 2); ?></span>
+                            <span class="price-value">Rs <?php echo number_format($finalTotal, 2); ?></span>
                         </div>
                     </div>
                 </div>

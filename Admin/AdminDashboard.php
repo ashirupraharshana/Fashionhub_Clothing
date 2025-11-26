@@ -771,7 +771,7 @@ while ($row = $monthlySales->fetch_assoc()) {
                     <i class="fas fa-dollar-sign"></i>
                 </div>
                 <div class="stat-content">
-                    <h3>$<?php echo number_format($totalRevenue, 2); ?></h3>
+                    <h3>Rs <?php echo number_format($totalRevenue, 2); ?></h3>
                     <p>Total Revenue</p>
                     <span class="stat-trend positive">
                         <i class="fas fa-arrow-up"></i> 23% from last month
@@ -820,7 +820,7 @@ while ($row = $monthlySales->fetch_assoc()) {
                                     </div>
                                     <div class="order-meta">
                                         <span class="order-status <?php echo $statusClass; ?>"><?php echo $statusText; ?></span>
-                                        <span class="order-price">$<?php echo number_format($order['total_price'], 2); ?></span>
+                                        <span class="order-price">Rs <?php echo number_format($order['total_price'], 2); ?></span>
                                     </div>
                                 </div>
                             <?php endwhile; ?>
@@ -882,7 +882,7 @@ while ($row = $monthlySales->fetch_assoc()) {
                                         <div class="bestseller-name"><?php echo htmlspecialchars($product['product_name']); ?></div>
                                         <div class="bestseller-stats">
                                             <span><?php echo $product['total_sold']; ?> sold</span>
-                                            <span class="bestseller-revenue">$<?php echo number_format($product['revenue'], 2); ?></span>
+                                            <span class="bestseller-revenue">Rs <?php echo number_format($product['revenue'], 2); ?></span>
                                         </div>
                                     </div>
                                 </div>
@@ -962,7 +962,7 @@ while ($row = $monthlySales->fetch_assoc()) {
                 labels: chartLabels,
                 datasets: [
                     {
-                        label: 'Revenue ($)',
+                        label: 'Revenue (Rs )',
                         data: chartRevenue,
                         borderColor: '#D4AF37',
                         backgroundColor: 'rgba(212, 175, 55, 0.1)',
@@ -1027,7 +1027,7 @@ while ($row = $monthlySales->fetch_assoc()) {
                                     label += ': ';
                                 }
                                 if (context.dataset.label === 'Revenue ($)') {
-                                    label += '$' + context.parsed.y.toFixed(2);
+                                    label += 'Rs ' + context.parsed.y.toFixed(2);
                                 } else {
                                     label += context.parsed.y;
                                 }
@@ -1048,7 +1048,7 @@ while ($row = $monthlySales->fetch_assoc()) {
                                 size: 12
                             },
                             callback: function(value) {
-                                return '$' + value;
+                                return 'Rs ' + value;
                             }
                         }
                     },

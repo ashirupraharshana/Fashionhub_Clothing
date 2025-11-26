@@ -830,7 +830,7 @@ $cancelledCount = $conn->query("SELECT COUNT(*) as count FROM orders WHERE statu
                                 <td><?php echo htmlspecialchars($row['size_name']); ?></td>
                                 <td><?php echo htmlspecialchars($row['color_name'] ?? 'N/A'); ?></td>
                                 <td><?php echo $row['quantity']; ?></td>
-                                <td><strong>$<?php echo number_format($row['total_price'], 2); ?></strong></td>
+                                <td><strong>Rs <?php echo number_format($row['total_price'], 2); ?></strong></td>
                                 <td><span class="status-badge <?php echo $statusClass; ?>"><?php echo $statusText; ?></span></td>
                                 <td><?php echo date('M d, Y', strtotime($row['order_date'])); ?></td>
                                 <td>
@@ -1008,11 +1008,11 @@ $cancelledCount = $conn->query("SELECT COUNT(*) as count FROM orders WHERE statu
                         </div>
                         <div class="info-row">
                             <div class="info-label">Unit Price:</div>
-                            <div class="info-value">${parseFloat(data.price).toFixed(2)}</div>
+                            <div class="info-value">Rs ${parseFloat(data.price).toFixed(2)}</div>
                         </div>
                         <div class="info-row">
                             <div class="info-label">Total Price:</div>
-                            <div class="info-value"><strong style="color: #667eea; font-size: 18px;">${parseFloat(data.total_price).toFixed(2)}</strong></div>
+                            <div class="info-value"><strong style="color: #667eea; font-size: 18px;">Rs ${parseFloat(data.total_price).toFixed(2)}</strong></div>
                         </div>
                         <div class="info-row">
                             <div class="info-label">Delivery Address:</div>
