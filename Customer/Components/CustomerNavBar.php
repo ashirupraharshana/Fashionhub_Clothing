@@ -205,41 +205,101 @@ $cart_items_sql = "SELECT
             padding-top: 70px;
         }
 
-        .alert {
-            position: fixed;
-            top: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 15px 30px;
-            border-radius: 8px;
-            font-weight: 500;
-            z-index: 9999;
-            animation: slideDown 0.3s ease;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            max-width: 500px;
-            text-align: center;
-        }
+        /* Toast Notification */
+.toast {
+    position: fixed;
+    top: 100px;
+    right: -400px;
+    background: #ffffff;
+    padding: 20px 30px;
+    border-radius: 15px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    min-width: 350px;
+    max-width: 500px;
+    transition: right 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
 
-        .alert.success {
-            background: #4caf50;
-            color: white;
-        }
+.toast.show {
+    right: 20px;
+}
 
-        .alert.error {
-            background: #f44336;
-            color: white;
-        }
+.toast.success {
+    border-left: 5px solid #27ae60;
+}
 
-        @keyframes slideDown {
-            from {
-                transform: translate(-50%, -20px);
-                opacity: 0;
-            }
-            to {
-                transform: translate(-50%, 0);
-                opacity: 1;
-            }
-        }
+.toast.error {
+    border-left: 5px solid #e74c3c;
+}
+
+.toast-icon {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.toast.success .toast-icon {
+    background: rgba(39, 174, 96, 0.1);
+    color: #27ae60;
+}
+
+.toast.error .toast-icon {
+    background: rgba(231, 76, 60, 0.1);
+    color: #e74c3c;
+}
+
+.toast-content {
+    flex: 1;
+}
+
+.toast-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+    font-size: 15px;
+    color: #2c3e50;
+}
+
+.toast-message {
+    font-size: 14px;
+    color: #7f8c8d;
+}
+
+.toast-close {
+    background: transparent;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #7f8c8d;
+    transition: all 0.3s;
+    padding: 5px;
+}
+
+.toast-close:hover {
+    color: #2c3e50;
+    transform: rotate(90deg);
+}
+
+@media (max-width: 768px) {
+    .toast {
+        right: -100%;
+        left: 10px;
+        min-width: auto;
+        max-width: calc(100% - 20px);
+    }
+
+    .toast.show {
+        right: auto;
+        left: 10px;
+    }
+}
 
         .navbar {
             background: #fff;
@@ -1019,14 +1079,35 @@ $cart_items_sql = "SELECT
         .sidebar::-webkit-scrollbar-thumb:hover {
             background: #555;
         }
+
+        .nav-links a.active {
+    color: #e74c3c;
+}
+
+.nav-links a.active::after {
+    width: 100%;
+}
+.sidebar-menu a.active {
+    background: #f8f8f8;
+    color: #e74c3c;
+    padding-left: 35px;
+    border-left: 4px solid #e74c3c;
+}
     </style>
 </head>
 <body>
     <?php if (!empty($message)): ?>
-        <div class="alert <?php echo $messageType; ?>" id="alertMessage">
-            <?php echo htmlspecialchars($message); ?>
+    <div class="toast <?php echo $messageType; ?>">
+        <div class="toast-icon">
+            <i class="fas fa-<?php echo $messageType === 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i>
         </div>
-    <?php endif; ?>
+        <div class="toast-content">
+            <div class="toast-title"><?php echo $messageType === 'success' ? 'Success!' : 'Error!'; ?></div>
+            <div class="toast-message"><?php echo htmlspecialchars($message); ?></div>
+        </div>
+        <button class="toast-close">&times;</button>
+    </div>
+<?php endif; ?>
 
     <nav class="navbar">
         <div class="navbar-content">
@@ -1041,17 +1122,22 @@ $cart_items_sql = "SELECT
                 <span>FashionHub</span>
             </a>
 
-            <ul class="nav-links">
-                <li><a href="/fashionhub/Customer/CustomerDashboard.php">Home</a></li>
-                <li><a href="/fashionhub/Customer/Products.php">Products</a></li>
-                <li><a href="/fashionhub/Customer/CustomerOrders.php">My Orders</a></li>
-                <li><a href="/fashionhub/Customer/Feedback.php">Feedbacks</a></li>
-                <li><a href="/fashionhub/Customer/AboutUs.php">About</a></li>
-                <li><a href="/fashionhub/Customer/ContactUs.php">Contact</a></li>
-                <li><button class="icon-button" id="profileButton" title="Profile">
-  <i class="fas fa-user-circle"></i>
-</button></li>
-            </ul>
+            <?php
+// Get current page name
+$current_page = basename($_SERVER['PHP_SELF']);
+?>
+
+<ul class="nav-links">
+    <li><a href="/fashionhub/Customer/CustomerDashboard.php" class="<?php echo ($current_page == 'CustomerDashboard.php') ? 'active' : ''; ?>">Home</a></li>
+    <li><a href="/fashionhub/Customer/Products.php" class="<?php echo ($current_page == 'Products.php') ? 'active' : ''; ?>">Products</a></li>
+    <li><a href="/fashionhub/Customer/CustomerOrders.php" class="<?php echo ($current_page == 'CustomerOrders.php') ? 'active' : ''; ?>">My Orders</a></li>
+    <li><a href="/fashionhub/Customer/Feedback.php" class="<?php echo ($current_page == 'Feedback.php') ? 'active' : ''; ?>">Feedbacks</a></li>
+    <li><a href="/fashionhub/Customer/AboutUs.php" class="<?php echo ($current_page == 'AboutUs.php') ? 'active' : ''; ?>">About</a></li>
+    <li><a href="/fashionhub/Customer/ContactUs.php" class="<?php echo ($current_page == 'ContactUs.php') ? 'active' : ''; ?>">Contact</a></li>
+    <li><button class="icon-button" id="profileButton" title="Profile">
+        <i class="fas fa-user-circle"></i>
+    </button></li>
+</ul>
 
             <div class="nav-actions">
                 <div class="cart-dropdown-container">
@@ -1231,19 +1317,31 @@ $cart_items_sql = "SELECT
         </div>
 
         <ul class="sidebar-menu">
-             <li><a href="/fashionhub/Customer/CustomerDashboard.php">Home</a></li>
-                <li><a href="/fashionhub/Customer/Products.php">Products</a></li>
-                <li><a href="/fashionhub/Customer/CustomerOrders.php">My Orders</a></li>
-                <li><a href="/fashionhub/Customer/Feedback.php">Feedbacks</a></li>
-                <li><a href="/fashionhub/Customer/AboutUs.php">About</a></li>
-                <li><a href="/fashionhub/Customer/ContactUs.php">Contact</a></li>
-                <li><a href="/fashionhub/Customer/Profile.php">
-    <i class="fas fa-user-cog"></i>Profile Settings
-</a></li>
-                <li><a href="/fashionhub/logout.php" onclick="return confirm('Are you sure you want to logout?');">
-    <i class="fas fa-sign-out-alt"></i>LogOut
-</a></li>
-        </ul>
+     <li><a href="/fashionhub/Customer/CustomerDashboard.php" class="<?php echo ($current_page == 'CustomerDashboard.php') ? 'active' : ''; ?>">
+         <i class="fas fa-home"></i>Home
+     </a></li>
+     <li><a href="/fashionhub/Customer/Products.php" class="<?php echo ($current_page == 'Products.php') ? 'active' : ''; ?>">
+         <i class="fas fa-shopping-bag"></i>Products
+     </a></li>
+     <li><a href="/fashionhub/Customer/CustomerOrders.php" class="<?php echo ($current_page == 'CustomerOrders.php') ? 'active' : ''; ?>">
+         <i class="fas fa-receipt"></i>My Orders
+     </a></li>
+     <li><a href="/fashionhub/Customer/Feedback.php" class="<?php echo ($current_page == 'Feedback.php') ? 'active' : ''; ?>">
+         <i class="fas fa-comments"></i>Feedbacks
+     </a></li>
+     <li><a href="/fashionhub/Customer/AboutUs.php" class="<?php echo ($current_page == 'AboutUs.php') ? 'active' : ''; ?>">
+         <i class="fas fa-info-circle"></i>About
+     </a></li>
+     <li><a href="/fashionhub/Customer/ContactUs.php" class="<?php echo ($current_page == 'ContactUs.php') ? 'active' : ''; ?>">
+         <i class="fas fa-envelope"></i>Contact
+     </a></li>
+     <li><a href="/fashionhub/Customer/Profile.php" class="<?php echo ($current_page == 'Profile.php') ? 'active' : ''; ?>">
+         <i class="fas fa-user-cog"></i>Profile Settings
+     </a></li>
+     <li><a href="/fashionhub/logout.php" onclick="return confirm('Are you sure you want to logout?');">
+         <i class="fas fa-sign-out-alt"></i>LogOut
+     </a></li>
+</ul>
         <div class="sidebar-section">
             <h4>Follow Us</h4>
             <div class="social-links">
@@ -1287,13 +1385,28 @@ $cart_items_sql = "SELECT
             console.log('Cart Toggle:', cartToggle);
             console.log('Cart Dropdown:', cartDropdown);
 
-            const alertMessage = document.getElementById('alertMessage');
-            if (alertMessage) {
-                setTimeout(() => {
-                    alertMessage.style.animation = 'slideUp 0.3s ease';
-                    setTimeout(() => alertMessage.remove(), 300);
-                }, 5000);
-            }
+            // Toast Notification
+const toast = document.querySelector('.toast');
+if (toast) {
+    setTimeout(() => {
+        toast.classList.add('show');
+    }, 100);
+
+    const closeBtn = toast.querySelector('.toast-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', function() {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 500);
+        });
+    }
+
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            if (toast.parentElement) toast.remove();
+        }, 500);
+    }, 5000);
+}
 
             if (menuToggle) {
                 menuToggle.addEventListener('click', function() {

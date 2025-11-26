@@ -66,6 +66,7 @@ $form_message = isset($_POST['message']) ? htmlspecialchars($_POST['message']) :
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Contact Us | FashionHub</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -128,6 +129,101 @@ $form_message = isset($_POST['message']) ? htmlspecialchars($_POST['message']) :
             line-height: 1.8;
         }
 
+        /* Toast Notification */
+.toast {
+    position: fixed;
+    top: 100px;
+    right: -400px;
+    background: #ffffff;
+    padding: 20px 30px;
+    border-radius: 15px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    min-width: 350px;
+    max-width: 500px;
+    transition: right 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.toast.show {
+    right: 20px;
+}
+
+.toast.success {
+    border-left: 5px solid #27ae60;
+}
+
+.toast.error {
+    border-left: 5px solid #e74c3c;
+}
+
+.toast-icon {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.toast.success .toast-icon {
+    background: rgba(39, 174, 96, 0.1);
+    color: #27ae60;
+}
+
+.toast.error .toast-icon {
+    background: rgba(231, 76, 60, 0.1);
+    color: #e74c3c;
+}
+
+.toast-content {
+    flex: 1;
+}
+
+.toast-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+    font-size: 15px;
+    color: #2c3e50;
+}
+
+.toast-message {
+    font-size: 14px;
+    color: #7f8c8d;
+}
+
+.toast-close {
+    background: transparent;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #7f8c8d;
+    transition: all 0.3s;
+    padding: 5px;
+}
+
+.toast-close:hover {
+    color: #2c3e50;
+    transform: rotate(90deg);
+}
+
+@media (max-width: 768px) {
+    .toast {
+        right: -100%;
+        left: 10px;
+        min-width: auto;
+        max-width: calc(100% - 20px);
+    }
+
+    .toast.show {
+        right: auto;
+        left: 10px;
+    }
+}
 
         /* Main Container */
         .container {
@@ -570,6 +666,198 @@ $form_message = isset($_POST['message']) ? htmlspecialchars($_POST['message']) :
             }
         }
 
+        .modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s;
+}
+
+.modal.active {
+    display: flex !important;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 450px;
+    padding: 0;
+    position: relative;
+    animation: slideUpModal 0.3s;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes slideUpModal {
+    from {
+        transform: translateY(-50px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.modal-header {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: white;
+    padding: 25px 30px;
+    border-radius: 12px 12px 0 0;
+    position: relative;
+}
+
+.modal-header h2 {
+    font-size: 24px !important;
+    margin: 0;
+    font-weight: 700;
+}
+
+.modal-header p {
+    font-size: 14px !important;
+    margin-top: 5px;
+    opacity: 0.9;
+}
+
+.close-modal {
+    position: absolute;
+    top: 20px;
+    right: 25px;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s;
+}
+
+.close-modal:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: rotate(90deg);
+}
+
+.modal-body {
+    padding: 35px 30px;
+}
+
+.modal .form-group {
+    margin-bottom: 20px;
+}
+
+.modal .form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #333;
+    font-weight: 600;
+    font-size: 14px !important;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.modal .form-group input {
+    width: 100%;
+    padding: 12px 15px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px !important;
+    transition: all 0.3s;
+    font-family: inherit;
+    background: white;
+}
+
+.modal .form-group input:focus {
+    outline: none;
+    border-color: #e74c3c;
+    box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+}
+
+.modal .form-group input::placeholder {
+    color: #999;
+}
+
+.modal .submit-btn {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px !important;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    margin-top: 10px;
+    text-transform: none;
+    letter-spacing: normal;
+    box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+}
+
+.modal .submit-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(231, 76, 60, 0.4);
+}
+
+.modal .form-footer {
+    text-align: center;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #e0e0e0;
+    font-size: 14px !important;
+    color: #666;
+}
+
+.modal .form-footer a {
+    color: #e74c3c;
+    text-decoration: none;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.modal .form-footer a:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 576px) {
+    .modal-content {
+        width: 95%;
+        margin: 0 10px;
+    }
+
+    .modal-body {
+        padding: 25px 20px;
+    }
+    
+    .modal-header h2 {
+        font-size: 20px !important;
+    }
+    
+    .modal-header p {
+        font-size: 13px !important;
+    }
+}
+
         /* Back to Top Button */
         .back-to-top {
             position: fixed;
@@ -611,118 +899,22 @@ $form_message = isset($_POST['message']) ? htmlspecialchars($_POST['message']) :
             opacity: 1;
             transform: translateY(0);
         }
-
-        /* Toast Notification */
-        .toast {
-            position: fixed;
-            top: 80px;
-            right: -400px;
-            background: white;
-            padding: 20px 30px;
-            border-radius: 15px;
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
-            z-index: 10000;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            min-width: 350px;
-            max-width: 500px;
-            transition: right 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-        }
-
-        .toast.show {
-            right: 20px;
-        }
-
-        .toast.success {
-            border-left: 5px solid #27ae60;
-        }
-
-        .toast.error {
-            border-left: 5px solid #e74c3c;
-        }
-
-        .toast-icon {
-            width: 45px;
-            height: 45px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            flex-shrink: 0;
-        }
-
-        .toast.success .toast-icon {
-            background: rgba(39, 174, 96, 0.1);
-            color: #27ae60;
-        }
-
-        .toast.error .toast-icon {
-            background: rgba(231, 76, 60, 0.1);
-            color: #e74c3c;
-        }
-
-        .toast-content {
-            flex: 1;
-        }
-
-        .toast-title {
-            font-weight: 600;
-            margin-bottom: 4px;
-            font-size: 15px;
-            color: #2c3e50;
-        }
-
-        .toast-message {
-            font-size: 14px;
-            color: #7f8c8d;
-        }
-
-        .toast-close {
-            background: transparent;
-            border: none;
-            font-size: 20px;
-            cursor: pointer;
-            color: #7f8c8d;
-            transition: all 0.3s;
-            padding: 5px;
-        }
-
-        .toast-close:hover {
-            color: #2c3e50;
-            transform: rotate(90deg);
-        }
-
-        @media (max-width: 768px) {
-            .toast {
-                right: -100%;
-                left: 10px;
-                min-width: auto;
-                max-width: calc(100% - 20px);
-            }
-
-            .toast.show {
-                right: auto;
-                left: 10px;
-            }
-        }
     </style>
 </head>
 <body>
    <!-- Toast Notification -->
-    <?php if (!empty($message)): ?>
-        <div class="toast <?php echo $message_type; ?>">
-            <div class="toast-icon">
-                <i class="fas fa-<?php echo $message_type == 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i>
-            </div>
-            <div class="toast-content">
-                <div class="toast-title"><?php echo $message_type == 'success' ? 'Success!' : 'Error!'; ?></div>
-                <div class="toast-message"><?php echo $message; ?></div>
-            </div>
-            <button class="toast-close">&times;</button>
+<?php if (!empty($message)): ?>
+    <div class="toast <?php echo $message_type; ?>">
+        <div class="toast-icon">
+            <i class="fas fa-<?php echo $message_type === 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i>
         </div>
-    <?php endif; ?>
+        <div class="toast-content">
+            <div class="toast-title"><?php echo $message_type === 'success' ? 'Success!' : 'Error!'; ?></div>
+            <div class="toast-message"><?php echo htmlspecialchars($message); ?></div>
+        </div>
+        <button class="toast-close">&times;</button>
+    </div>
+<?php endif; ?>
 
     <!-- Hero Section -->
     <section class="hero-section">
@@ -984,80 +1176,80 @@ $form_message = isset($_POST['message']) ? htmlspecialchars($_POST['message']) :
     <button class="back-to-top" id="backToTop">
         <i class="fas fa-arrow-up"></i>
     </button>
+<?php include 'Components/Footer.php'; ?>
+   <script>
+    // Scroll Animation
+    const observerOptions = {
+        threshold: 0.1,
+        rootMargin: '0px 0px -50px 0px'
+    };
 
-    <script>
-        // Scroll Animation
-        const observerOptions = {
-            threshold: 0.1,
-            rootMargin: '0px 0px -50px 0px'
-        };
-
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    entry.target.classList.add('visible');
-                }
-            });
-        }, observerOptions);
-
-        document.querySelectorAll('.fade-in').forEach(element => {
-            observer.observe(element);
-        });
-
-        // Back to Top Button
-        const backToTop = document.getElementById('backToTop');
-
-        window.addEventListener('scroll', () => {
-            if (window.pageYOffset > 300) {
-                backToTop.classList.add('show');
-            } else {
-                backToTop.classList.remove('show');
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('visible');
             }
         });
+    }, observerOptions);
 
-        backToTop.addEventListener('click', () => {
-            window.scrollTo({
-                top: 0,
-                behavior: 'smooth'
-            });
+    document.querySelectorAll('.fade-in').forEach(element => {
+        observer.observe(element);
+    });
+
+    // Back to Top Button
+    const backToTop = document.getElementById('backToTop');
+
+    window.addEventListener('scroll', () => {
+        if (window.pageYOffset > 300) {
+            backToTop.classList.add('show');
+        } else {
+            backToTop.classList.remove('show');
+        }
+    });
+
+    backToTop.addEventListener('click', () => {
+        window.scrollTo({
+            top: 0,
+            behavior: 'smooth'
         });
+    });
 
-        // Toast Notification Handler
-        const toast = document.querySelector('.toast');
-        if (toast) {
-            setTimeout(() => {
-                toast.classList.add('show');
-            }, 100);
+    // Contact Toast Notification - Renamed to avoid conflicts
+    const contactToast = document.querySelector('.toast');
+    if (contactToast) {
+        setTimeout(() => {
+            contactToast.classList.add('show');
+        }, 100);
 
-            const closeBtn = toast.querySelector('.toast-close');
-            if (closeBtn) {
-                closeBtn.addEventListener('click', function() {
-                    toast.classList.remove('show');
-                    setTimeout(() => toast.remove(), 500);
-                });
-            }
-
-            setTimeout(() => {
-                toast.classList.remove('show');
-                setTimeout(() => {
-                    if (toast.parentElement) toast.remove();
-                }, 500);
-            }, 5000);
-        }
-
-        // Form validation
-        const contactForm = document.querySelector('form');
-        if (contactForm) {
-            contactForm.addEventListener('submit', function(e) {
-                const phone = document.getElementById('phone').value;
-                if (phone && !/^\+?[\d\s-]{10,}$/.test(phone)) {
-                    e.preventDefault();
-                    window.alert('Please enter a valid phone number');
-                    return false;
-                }
+        const closeBtn = contactToast.querySelector('.toast-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function() {
+                contactToast.classList.remove('show');
+                setTimeout(() => contactToast.remove(), 500);
             });
         }
-    </script>
+
+        setTimeout(() => {
+            contactToast.classList.remove('show');
+            setTimeout(() => {
+                if (contactToast.parentElement) contactToast.remove();
+            }, 500);
+        }, 5000);
+    }
+
+    // Form validation
+    const contactForm = document.querySelector('form');
+    if (contactForm) {
+        contactForm.addEventListener('submit', function(e) {
+            const phone = document.getElementById('phone').value;
+            if (phone && !/^\+?[\d\s-]{10,}$/.test(phone)) {
+                e.preventDefault();
+                window.alert('Please enter a valid phone number');
+                return false;
+            }
+        });
+    }
+</script>
 </body>
 </html>
 

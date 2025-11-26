@@ -54,6 +54,7 @@ if ($orders_result) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>About Us | FashionHub</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -751,7 +752,7 @@ if ($orders_result) {
     <button class="back-to-top" id="backToTop">
         <i class="fas fa-arrow-up"></i>
     </button>
-
+<?php include 'Components/Footer.php'; ?>
     <script>
         // Scroll Animation
         const observerOptions = {
